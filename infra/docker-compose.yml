@@ -1,0 +1,107 @@
+# RAVEN hackathon profile: api + worker + web, one shared SQLite volume.
+#
+#   docker compose -f infra/docker-compose.yml up --build
+#
+# Optional services:
+#   - nginx reverse proxy (SSE-safe):  docker compose --profile proxy up nginx
+#   - Redis-backed queue:              uncomment the `redis` service below and
+#     set RAVEN_REDIS_URL=redis://redis:6379/0 (in .env or the env blocks).
+#
+# Model keys are read from the host environment / .env — never baked into images.
+name: raven
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.api
+    environment:
+      RAVEN_ENV: development
+      # Absolute path so both api and worker share one SQLite file on the volume.
+      RAVEN_DATABASE_URL: sqlite:////data/raven.db
+      RAVEN_EVIDENCE_DIR: /data/evidence
+      # pydantic-settings parses list fields as JSON.
+      RAVEN_CORS_ORIGINS: '["http://localhost:3000","http://localhost:8080"]'
+      RAVEN_REDIS_URL: ${RAVEN_REDIS_URL:-}
+      RAVEN_MODEL_PROVIDER: ${RAVEN_MODEL_PROVIDER:-none}
+      RAVEN_MODEL_NAME: ${RAVEN_MODEL_NAME:-}
+      RAVEN_MODEL_API_KEY: ${RAVEN_MODEL_API_KEY:-}
+      RAVEN_MODEL_BASE_URL: ${RAVEN_MODEL_BASE_URL:-}
+    ports:
+      - "8000:8000"
+    volumes:
+      - raven-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.worker
+    environment:
+      RAVEN_DATABASE_URL: sqlite:////data/raven.db
+      RAVEN_EVIDENCE_DIR: /data/evidence
+      # Belt-and-braces: fixtures are also resolved repo-root-relative in-image.
+      RAVEN_FIXTURES_DIR: /app/fixtures/shophelper
+      RAVEN_REDIS_URL: ${RAVEN_REDIS_URL:-}
+      # Scan budgets (CLAUDE.md safety rule 6) — configurable per demo run.
+      RAVEN_WORKER_CONCURRENCY: ${RAVEN_WORKER_CONCURRENCY:-2}
+      RAVEN_SCAN_TIMEOUT_SECONDS: ${RAVEN_SCAN_TIMEOUT_SECONDS:-600}
+      RAVEN_MODEL_CALL_TIMEOUT_SECONDS: ${RAVEN_MODEL_CALL_TIMEOUT_SECONDS:-30}
+      RAVEN_MAX_ATTACK_CASES: ${RAVEN_MAX_ATTACK_CASES:-12}
+      RAVEN_MAX_ATTEMPTS_PER_ATTACK: ${RAVEN_MAX_ATTEMPTS_PER_ATTACK:-2}
+      RAVEN_MAX_MODEL_CALLS: ${RAVEN_MAX_MODEL_CALLS:-40}
+      RAVEN_MAX_TOTAL_TOKENS: ${RAVEN_MAX_TOTAL_TOKENS:-200000}
+      RAVEN_MODEL_PROVIDER: ${RAVEN_MODEL_PROVIDER:-none}
+      RAVEN_MODEL_NAME: ${RAVEN_MODEL_NAME:-}
+      RAVEN_MODEL_API_KEY: ${RAVEN_MODEL_API_KEY:-}
+      RAVEN_MODEL_BASE_URL: ${RAVEN_MODEL_BASE_URL:-}
+    volumes:
+      - raven-data:/data
+    depends_on:
+      api:
+        condition: service_healthy # api owns migrations; worker waits for them.
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+  # Optional SSE-safe reverse proxy → http://localhost:8080 (see nginx.conf).
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["proxy"]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api
+      - web
+
+  # Optional: Redis-backed queue/events instead of the in-process SQLite queue.
+  # Uncomment, then set RAVEN_REDIS_URL=redis://redis:6379/0.
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+
+volumes:
+  raven-data:

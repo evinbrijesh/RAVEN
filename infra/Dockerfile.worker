@@ -1,0 +1,46 @@
+# RAVEN evaluation worker (state machine, targets, judges, hardening, regression).
+# Build context is the REPO ROOT:
+#   docker build -f infra/Dockerfile.worker .
+#
+# The worker imports the control-plane domain (`app.*`, via the raven-api
+# workspace member) and resolves repo-root-relative paths at runtime:
+#   repo_root()          -> /app                       (evaluator/config.py)
+#   attack catalog       -> /app/packages/attack-catalog (attacks/planner.py)
+#   ShopHelper fixtures  -> /app/fixtures/shophelper     (targets/shophelper.py)
+# so the monorepo layout must be preserved inside the image.
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# Workspace metadata first (root + both members) for dependency-layer caching.
+COPY pyproject.toml ./pyproject.toml
+COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
+COPY workers/evaluator/pyproject.toml ./workers/evaluator/pyproject.toml
+
+# Third-party dependencies only. Sync from the member directory: the
+# workspace root is a virtual project, so a root-level sync would install no
+# members. This resolves raven-evaluator's deps, including raven-api's.
+RUN uv sync --directory workers/evaluator --no-install-workspace --no-dev
+
+# Source: control-plane domain (imported by the worker), worker package,
+# versioned attack catalog, and ShopHelper fixtures.
+COPY apps/api/app ./apps/api/app
+COPY apps/api/migrations ./apps/api/migrations
+COPY workers/evaluator/evaluator ./workers/evaluator/evaluator
+COPY packages/attack-catalog ./packages/attack-catalog
+COPY fixtures ./fixtures
+
+# Install workspace members (editable) — provides both `app` and `evaluator`.
+RUN uv sync --directory workers/evaluator --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}"
+WORKDIR /app/workers/evaluator
+
+# Runs as root for the hackathon profile (shared SQLite volume ownership);
+# drop privileges for production.
+CMD ["python", "-m", "evaluator.worker"]

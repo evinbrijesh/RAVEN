@@ -1,0 +1,43 @@
+# RAVEN control plane (FastAPI).
+# Build context is the REPO ROOT so the uv workspace resolves:
+#   docker build -f infra/Dockerfile.api .
+#
+# Runtime contract:
+#   - SQLite/evidence live on a mounted volume (compose mounts raven-data at /data).
+#   - Listens on 0.0.0.0:8000 (RAVEN_API_PORT is honored by compose-provided env).
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# Workspace metadata first (root + both members) so dependency layers cache.
+# uv.lock is gitignored, so builds resolve fresh; switch to `--frozen` if a
+# lockfile is ever committed.
+COPY pyproject.toml ./pyproject.toml
+COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
+COPY workers/evaluator/pyproject.toml ./workers/evaluator/pyproject.toml
+
+# Third-party dependencies only (workspace members not installed yet).
+# Sync from the member directory: the workspace root is a virtual project, so
+# a root-level sync would install no members.
+RUN uv sync --directory apps/api --no-install-workspace --no-dev
+
+# Application source. Layout is preserved because app code and the worker
+# resolve repo-root-relative paths (repo_root() == /app).
+COPY apps/api/app ./apps/api/app
+COPY apps/api/migrations ./apps/api/migrations
+
+# Install the workspace member itself (editable).
+RUN uv sync --directory apps/api --no-dev
+
+ENV PATH="/app/.venv/bin:${PATH}"
+WORKDIR /app/apps/api
+
+EXPOSE 8000
+# Runs as root for the hackathon profile so the shared SQLite volume is
+# writable without pre-provisioned ownership; drop privileges for production.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
