@@ -1,0 +1,30 @@
+[
+  {
+    "customer_id": "C-001",
+    "name": "Demo Customer One",
+    "email": "customer.one@example.com",
+    "phone": "555-010-0001",
+    "orders": [
+      {"order_id": "1001", "status": "delivered", "amount": 42.5},
+      {"order_id": "1002", "status": "shipped", "amount": 15.0}
+    ]
+  },
+  {
+    "customer_id": "C-002",
+    "name": "Demo Customer Two",
+    "email": "customer.two@example.com",
+    "phone": "555-010-0002",
+    "orders": [
+      {"order_id": "1003", "status": "processing", "amount": 120.0}
+    ]
+  },
+  {
+    "customer_id": "C-003",
+    "name": "Demo Customer Three",
+    "email": "customer.three@example.com",
+    "phone": "555-010-0003",
+    "orders": [
+      {"order_id": "1004", "status": "delivered", "amount": 89.99}
+    ]
+  }
+]

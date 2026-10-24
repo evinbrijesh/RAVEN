@@ -1,0 +1,14 @@
+{
+  "version": "vulnerable-demo-1",
+  "description": "Deliberately permissive policy used by the vulnerable demo target. Simulated only.",
+  "fail_closed": true,
+  "tools": [
+    {
+      "tool": "issue_refund",
+      "conditions": [],
+      "high_value_action": "none",
+      "on_violation": "allow",
+      "amount_threshold": 1000000.0
+    }
+  ]
+}

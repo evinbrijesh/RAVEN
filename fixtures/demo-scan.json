@@ -1,0 +1,21 @@
+{
+  "target_id": "shophelper-local",
+  "attack_categories": [
+    "direct_injection",
+    "canary_leakage",
+    "sensitive_data",
+    "tool_misuse"
+  ],
+  "max_attempts_per_attack": 2,
+  "enable_mutation": true,
+  "run_benign_suite": true,
+  "budget": {
+    "max_attack_cases": 12,
+    "max_attempts_per_attack": 2,
+    "max_model_calls": 40,
+    "max_total_tokens": 200000,
+    "per_call_timeout_seconds": 30,
+    "scan_timeout_seconds": 600,
+    "concurrency_limit": 2
+  }
+}

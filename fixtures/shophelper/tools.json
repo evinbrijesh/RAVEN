@@ -1,0 +1,22 @@
+{
+  "tools": [
+    {
+      "name": "get_order",
+      "description": "Look up an order by id (simulated, local data only).",
+      "parameters": {"order_id": "string"},
+      "side_effects": "none"
+    },
+    {
+      "name": "get_customer",
+      "description": "Look up a customer by id (simulated, local data only).",
+      "parameters": {"customer_id": "string"},
+      "side_effects": "none"
+    },
+    {
+      "name": "issue_refund",
+      "description": "Issue a refund for an order (SIMULATED — no real payment action).",
+      "parameters": {"order_id": "string", "amount": "number"},
+      "side_effects": "simulated_only"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+-- RAVEN initial migration (baseline copy).
+-- CANONICAL SOURCE: apps/api/app/infrastructure/db/schema.sql
+-- The control plane applies the canonical schema idempotently at startup
+-- (CREATE TABLE IF NOT EXISTS). This file is the versioned baseline for a
+-- future migration tool (e.g. Alembic) — keep it in sync when schema.sql
+-- changes, or regenerate it.
