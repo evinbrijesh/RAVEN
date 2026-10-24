@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     database_url: str = "sqlite:///./data/raven.db"
     redis_url: str = ""
-    cors_origins: list[str] | str = ["http://localhost:3000"]
+    cors_origins: list[str] | str = ["*"]
     evidence_dir: str = "./data/evidence"
 
     @field_validator("cors_origins", mode="after")

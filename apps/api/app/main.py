@@ -55,9 +55,12 @@ def create_app() -> FastAPI:
         description="Bounded, human-supervised security regression for LLM applications.",
         lifespan=lifespan,
     )
+    allow_origins = settings.cors_origins if settings.cors_origins != ["*"] else []
+    allow_origin_regex = r".*" if settings.cors_origins == ["*"] else None
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=allow_origins,
+        allow_origin_regex=allow_origin_regex,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
