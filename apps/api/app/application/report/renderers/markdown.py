@@ -318,6 +318,8 @@ def render_markdown(document: ReportDocument) -> str:
         parts.append(f"- {limitation}")
     parts.append("")
 
+    parts.append("## Redaction and integrity")
+    parts.append("")
     redaction = document.redaction
     parts.append(
         f"**Redaction:** {'applied' if redaction.applied else 'not applied'} at render "

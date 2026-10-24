@@ -19,10 +19,11 @@ DRIVER_URI = "https://github.com/raven/raven"
 
 # Category → stable rule id (MITRE ATLAS LLM mapping per ADR 0001).
 _CATEGORY_RULES = {
-    "prompt_injection": "RAVEN/LLM01-prompt-injection",
+    "direct_injection": "RAVEN/LLM01-prompt-injection",
+    "canary_leakage": "RAVEN/LLM06-sensitive-information-disclosure",
+    "sensitive_data": "RAVEN/LLM06-sensitive-information-disclosure",
     "system_prompt_leak": "RAVEN/LLM07-system-prompt-leakage",
-    "sensitive_disclosure": "RAVEN/LLM06-sensitive-information-disclosure",
-    "excessive_agency": "RAVEN/LLM08-excessive-agency",
+    "tool_misuse": "RAVEN/LLM08-excessive-agency",
 }
 
 _ACTIONABLE_LABELS = {"confirmed_failure", "likely_failure", "regression_detected", "needs_review"}

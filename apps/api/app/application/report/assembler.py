@@ -477,6 +477,22 @@ def _findings_view(
                     )
                 )
 
+        # Deterministic checks are evidence even when the finding carries no
+        # explicit rule_check ref: synthesize one from the verdict.
+        if (
+            verdict is not None
+            and verdict.rule_result is not None
+            and not any(ref.kind == "rule_check" for ref in finding.evidence_refs)
+        ):
+            add_evidence(
+                ReportEvidence(
+                    ref_id=verdict.verdict_id,
+                    kind="rule_check",
+                    description="deterministic rule check: "
+                    + "; ".join(verdict.rule_result.signals),
+                )
+            )
+
         semantic = verdict.llm_result if verdict else None
         deterministic = verdict.rule_result if verdict else None
 
@@ -549,6 +565,11 @@ def _limitations(
         limitations.append(
             "Semantic judge was unavailable; labels rely on deterministic "
             "checks only and needs_review items were not semantically adjudicated."
+        )
+    if bundle.before_run is None:
+        limitations.append(
+            "No pre-hardening security run was recorded; before/after deltas "
+            "are not evaluable and the report is partial."
         )
     if bundle.utility_before is None and bundle.utility_after is not None:
         limitations.append(
