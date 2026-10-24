@@ -81,10 +81,18 @@ class ScanRepository:
         row = self._db.query_one("SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
         if row is None:
             return None
+        target_id = row["target_id"]
+        is_http = target_id.startswith(("http://", "https://"))
+        target_ref = {
+            "target_id": target_id,
+            "kind": "http" if is_http else "local",
+            "mode": "evaluation_only" if is_http else "staged_target",
+            "endpoint_url": target_id if is_http else None,
+        }
         return Scan(
             scan_id=row["scan_id"],
             status=ScanStatus(row["status"]),
-            target={"target_id": row["target_id"]},
+            target=target_ref,
             config=ScanConfig.model_validate_json(row["config_json"]),
             progress=row["progress"],
             created_at=datetime.fromisoformat(row["created_at"]),
@@ -555,6 +563,17 @@ class RegressionRepository:
     def save_case(
         self, target_id: str, attack_case: AttackCase, case_json: str
     ) -> str:
+        existing = self._db.query_one(
+            "SELECT regression_id FROM regression_cases WHERE target_id = ? AND attack_case_id = ? AND active = 1",
+            (target_id, attack_case.id),
+        )
+        if existing is not None:
+            self._db.execute(
+                "UPDATE regression_cases SET case_json = ?, created_at = ? WHERE regression_id = ?",
+                (case_json, _now(), existing["regression_id"]),
+            )
+            return existing["regression_id"]
+
         regression_id = _id("reg")
         self._db.execute(
             "INSERT INTO regression_cases (regression_id, target_id, attack_case_id,"
@@ -562,6 +581,7 @@ class RegressionRepository:
             (regression_id, target_id, attack_case.id, case_json, _now()),
         )
         return regression_id
+
 
     def list_active(self, target_id: str) -> list[dict[str, Any]]:
         rows = self._db.query_all(

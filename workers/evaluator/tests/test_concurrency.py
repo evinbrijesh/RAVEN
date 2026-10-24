@@ -8,18 +8,17 @@ from pathlib import Path
 
 import pytest
 from app.domain.entities import Scan, ScanConfig
-from app.domain.enums import FindingLabel, ScanStatus
+from app.domain.enums import ScanStatus
 from app.domain.value_objects import TargetRef
 from app.infrastructure.queue.sqlite_queue import SqliteJobQueue
 
-from evaluator.orchestration.phases import ScanEngine
 from evaluator.worker import process_job
 
 
 @pytest.mark.asyncio
 async def test_two_scans_concurrent_execution(repos, fixtures_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("RAVEN_FIXTURES_DIR", str(fixtures_path))
-    queue = SqliteJobQueue(repos.db)
+    SqliteJobQueue(repos.db)
 
     # Create two distinct scans
     scan1_id = f"scan_c1_{uuid.uuid4().hex[:6]}"

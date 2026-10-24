@@ -18,6 +18,8 @@ ALLOWED_TRANSITIONS: dict[ScanStatus, set[ScanStatus]] = {
     ScanStatus.JUDGING: {
         ScanStatus.HARDENING_PROPOSED,
         ScanStatus.COMPLETED,  # no findings -> nothing to harden
+        ScanStatus.COMPLETED_WITH_LIMITATIONS,
+        ScanStatus.INCONCLUSIVE,
         ScanStatus.FAILED_PARTIAL,
         ScanStatus.FAILED_FATAL,
     },
@@ -25,21 +27,33 @@ ALLOWED_TRANSITIONS: dict[ScanStatus, set[ScanStatus]] = {
     ScanStatus.AWAITING_APPROVAL: {
         ScanStatus.RETESTING,
         ScanStatus.COMPLETED_WITHOUT_RETEST,
+        ScanStatus.COMPLETED_WITH_LIMITATIONS,
+        ScanStatus.INCONCLUSIVE,
         ScanStatus.FAILED_PARTIAL,
         ScanStatus.FAILED_FATAL,
     },
-    ScanStatus.RETESTING: {ScanStatus.COMPLETED, ScanStatus.FAILED_PARTIAL, ScanStatus.FAILED_FATAL},
+    ScanStatus.RETESTING: {
+        ScanStatus.COMPLETED,
+        ScanStatus.COMPLETED_WITH_LIMITATIONS,
+        ScanStatus.INCONCLUSIVE,
+        ScanStatus.FAILED_PARTIAL,
+        ScanStatus.FAILED_FATAL,
+    },
     ScanStatus.COMPLETED: set(),
     ScanStatus.COMPLETED_WITHOUT_RETEST: set(),
+    ScanStatus.COMPLETED_WITH_LIMITATIONS: set(),
     ScanStatus.FAILED_PARTIAL: set(),
     ScanStatus.FAILED_FATAL: set(),
+    ScanStatus.INCONCLUSIVE: set(),
 }
 
 TERMINAL_STATUSES = {
     ScanStatus.COMPLETED,
     ScanStatus.COMPLETED_WITHOUT_RETEST,
+    ScanStatus.COMPLETED_WITH_LIMITATIONS,
     ScanStatus.FAILED_PARTIAL,
     ScanStatus.FAILED_FATAL,
+    ScanStatus.INCONCLUSIVE,
 }
 
 

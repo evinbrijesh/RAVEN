@@ -13,6 +13,8 @@ export const SCAN_STATUSES = [
   "retesting",
   "completed",
   "completed_without_retest",
+  "completed_with_limitations",
+  "inconclusive",
   "failed_partial",
   "failed_fatal",
 ] as const;

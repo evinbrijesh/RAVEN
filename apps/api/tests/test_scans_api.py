@@ -131,7 +131,7 @@ def test_approve_hardening_idempotency_and_rejection(
     repos = client.app.state.repos
     repos.scans.update_status(scan_id, ScanStatus.AWAITING_APPROVAL)
 
-    prop = repos.proposals.save(
+    repos.proposals.save(
         HardeningProposal(
             proposal_id="fix_idemp_1",
             scan_id=scan_id,

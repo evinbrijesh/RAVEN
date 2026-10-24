@@ -63,7 +63,8 @@ def validate_target_url(url: str, allow_local_in_dev: bool = False) -> None:
 
 def assert_consent_header(headers: dict[str, str]) -> None:
     """Verify that the caller provided the required authorization consent header."""
-    consent = headers.get("x-raven-scan-consent", "").strip().lower()
+    lower_headers = {k.lower(): v for k, v in headers.items()}
+    consent = lower_headers.get("x-raven-scan-consent", "").strip().lower()
     if consent != "true":
         raise MissingConsentError(
             "External HTTP targets require header 'X-Raven-Scan-Consent: true' to verify authorization."

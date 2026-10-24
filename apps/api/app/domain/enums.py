@@ -20,8 +20,10 @@ class ScanStatus(StrEnum):
     RETESTING = "retesting"
     COMPLETED = "completed"
     COMPLETED_WITHOUT_RETEST = "completed_without_retest"
+    COMPLETED_WITH_LIMITATIONS = "completed_with_limitations"
     FAILED_PARTIAL = "failed_partial"
     FAILED_FATAL = "failed_fatal"
+    INCONCLUSIVE = "inconclusive"
 
 
 class FindingLabel(StrEnum):

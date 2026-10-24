@@ -240,12 +240,31 @@ def _decide_verdict(
         return ReportVerdict.INCONCLUSIVE
     # 4. Improved: success dropped and benign utility held.
     if before_rate > 0 and after_rate < before_rate and not utility_regressed:
-        return ReportVerdict.IMPROVED
-    # 5. Default: nothing confirmed under the stated checks — but only when
-    #    every selected case was actually evaluated (never a false clean).
-    if counts.not_evaluated > 0:
-        return ReportVerdict.INCONCLUSIVE
-    return ReportVerdict.NO_CONFIRMED_FINDINGS
+        verdict = ReportVerdict.IMPROVED
+    elif counts.not_evaluated > 0 or counts.evaluated == 0:
+        verdict = ReportVerdict.INCONCLUSIVE
+    else:
+        verdict = ReportVerdict.NO_CONFIRMED_FINDINGS
+
+    # Safety assertions (Item 10): An incomplete scan cannot receive a clean security verdict.
+    is_incomplete = (
+        scan_status not in (
+            ScanStatus.COMPLETED,
+            ScanStatus.COMPLETED_WITHOUT_RETEST,
+            ScanStatus.COMPLETED_WITH_LIMITATIONS,
+        )
+        or (counts.not_evaluated > 0)
+        or (counts.evaluated == 0)
+        or (attack_cases == 0)
+    )
+    if is_incomplete:
+        assert verdict in (
+            ReportVerdict.PARTIAL,
+            ReportVerdict.INCONCLUSIVE,
+            ReportVerdict.CONFIRMED_VULNERABLE,
+        ), f"Incomplete scan cannot receive clean verdict '{verdict}' (status={scan_status}, not_evaluated={counts.not_evaluated})"
+
+    return verdict
 
 
 def _headline(

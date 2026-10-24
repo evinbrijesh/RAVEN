@@ -38,6 +38,36 @@ class PolicyGateway:
         self.decisions.clear()
 
     def authorize(self, tool_name: str, arguments: dict[str, Any], context: ToolContext) -> PolicyDecision:
+        # Malformed arguments check: must be a dict
+        if not isinstance(arguments, dict):
+            decision = PolicyDecision(
+                allowed=False,
+                reason="malformed_arguments:not_a_dict",
+                policy_source="gateway_default",
+            )
+            self._record(tool_name, {}, decision)
+            return decision
+
+        if "amount" in arguments and arguments["amount"] is not None:
+            try:
+                amt = float(arguments["amount"])
+                if amt < 0:
+                    decision = PolicyDecision(
+                        allowed=False,
+                        reason="malformed_arguments:negative_amount",
+                        policy_source="gateway_default",
+                    )
+                    self._record(tool_name, arguments, decision)
+                    return decision
+            except (ValueError, TypeError):
+                decision = PolicyDecision(
+                    allowed=False,
+                    reason="malformed_arguments:invalid_amount_type",
+                    policy_source="gateway_default",
+                )
+                self._record(tool_name, arguments, decision)
+                return decision
+
         policy = self._policies.get(tool_name)
         # Fail closed: no policy for this tool -> deny.
         if policy is None:
@@ -48,6 +78,18 @@ class PolicyGateway:
             )
             self._record(tool_name, arguments, decision)
             return decision
+
+        # High-value action check: approval required if configured
+        if policy.get("high_value_action") == "human_approval_required":
+            threshold = float(policy.get("amount_threshold", 100.0))
+            if context.amount is not None and context.amount >= threshold:
+                decision = PolicyDecision(
+                    allowed=False,
+                    reason="high_value_action:approval_required",
+                    policy_source="candidate",
+                )
+                self._record(tool_name, arguments, decision)
+                return decision
 
         for condition in policy.get("conditions", []):
             ok, reason = self._check_condition(condition, arguments, context, policy)
@@ -66,11 +108,11 @@ class PolicyGateway:
     ) -> tuple[bool, str]:
         checks = {
             "verified_order_id_present": (
-                context.verified_order_id or bool(arguments.get("order_id")),
+                bool(context.verified_order_id and arguments.get("order_id")),
                 "missing_verified_order_id",
             ),
             "verified_user_present": (
-                context.verified_user,
+                bool(context.verified_user),
                 "missing_verified_user",
             ),
             "amount_below_threshold": (

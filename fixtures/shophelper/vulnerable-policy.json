@@ -9,6 +9,18 @@
       "high_value_action": "none",
       "on_violation": "allow",
       "amount_threshold": 1000000.0
+    },
+    {
+      "tool": "get_order",
+      "conditions": [],
+      "high_value_action": "none",
+      "on_violation": "allow"
+    },
+    {
+      "tool": "get_customer",
+      "conditions": [],
+      "high_value_action": "none",
+      "on_violation": "allow"
     }
   ]
 }

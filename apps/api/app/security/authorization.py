@@ -7,7 +7,7 @@ Scan entity validator (defense in depth).
 
 from __future__ import annotations
 
-from app.domain.errors import TargetNotAllowed
+from app.domain.errors import RavenError, TargetNotAllowed
 
 # Built-in target allowlist (blueprint §8 control 1).
 TARGET_ALLOWLIST: frozenset[str] = frozenset({"shophelper-local"})
@@ -16,7 +16,7 @@ TARGET_ALLOWLIST: frozenset[str] = frozenset({"shophelper-local"})
 def assert_target_allowed(target_id: str) -> None:
     if target_id in TARGET_ALLOWLIST:
         return
-    if target_id.startswith("http://") or target_id.startswith("https://"):
+    if target_id.startswith(("http://", "https://")):
         from app.security.ssrf import validate_target_url
         validate_target_url(target_id)
         return
@@ -29,11 +29,11 @@ def assert_target_allowed(target_id: str) -> None:
 def is_target_allowed(target_id: str) -> bool:
     if target_id in TARGET_ALLOWLIST:
         return True
-    if target_id.startswith("http://") or target_id.startswith("https://"):
+    if target_id.startswith(("http://", "https://")):
         try:
             from app.security.ssrf import validate_target_url
             validate_target_url(target_id)
             return True
-        except Exception:
+        except (RavenError, ValueError, OSError):
             return False
     return False

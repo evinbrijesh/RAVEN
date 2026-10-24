@@ -7,14 +7,11 @@ immutable TargetRef specification in a Scan (P0.1 requirement).
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING
 
 from app.domain.entities import Scan
 from app.domain.errors import TargetNotAllowed
-from evaluator.targets.base import TargetAdapter
 
-if TYPE_CHECKING:
-    pass
+from evaluator.targets.base import TargetAdapter
 
 
 def build_target(scan: Scan, fixtures_path: str | None = None) -> TargetAdapter:
@@ -29,7 +26,7 @@ def build_target(scan: Scan, fixtures_path: str | None = None) -> TargetAdapter:
     target = scan.target
 
     # Mode 1: Built-in local demo bot (ShopHelper)
-    if target.target_id == "shophelper-local" or target.kind == "local":
+    if target.target_id == "shophelper-local":
         from evaluator.targets.shophelper import ShopHelperLocalAdapter
         return ShopHelperLocalAdapter(fixtures_path=fixtures_path or None)
 
@@ -52,6 +49,7 @@ def build_target(scan: Scan, fixtures_path: str | None = None) -> TargetAdapter:
             request_template=target.request_template or {"message": "{prompt}"},
             response_json_path=target.response_json_path or "response",
             timeout_seconds=target.timeout_seconds or 30.0,
+            mode=getattr(target, "mode", "evaluation_only"),
         )
 
     raise TargetNotAllowed(

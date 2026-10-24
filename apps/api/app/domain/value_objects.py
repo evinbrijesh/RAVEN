@@ -41,6 +41,7 @@ class TargetRef(BaseModel):
     target_id: str
     kind: str = "local"  # "local" | "http"
     version: str = "demo-1"
+    mode: str = "evaluation_only"  # "evaluation_only" | "staged_target" | "deployed"
     endpoint_url: str | None = None
     request_template: dict[str, str] | None = None
     response_json_path: str = "response"
@@ -50,7 +51,7 @@ class TargetRef(BaseModel):
     rate_limit_per_minute: int = 60
     config_hash: str = ""
 
-    def model_post_init(self, __context: object) -> None:
+    def model_post_init(self, context: object, /) -> None:
         if not self.config_hash:
             import hashlib
             data = f"{self.target_id}:{self.kind}:{self.endpoint_url}:{self.response_json_path}"

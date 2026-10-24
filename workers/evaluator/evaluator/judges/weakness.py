@@ -6,8 +6,8 @@ components of the target application architecture (docs/ARCHITECTURE.md).
 
 from __future__ import annotations
 
-from app.domain.entities import AttackCase, Finding, Transcript, Verdict, WeakPoint
-from app.domain.enums import AttackCategory, FindingLabel
+from app.domain.entities import AttackCase, Transcript, Verdict, WeakPoint
+from app.domain.enums import AttackCategory
 
 
 def derive_weak_point(

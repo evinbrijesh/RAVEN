@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   ShieldAlert,
@@ -17,6 +18,12 @@ import {
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard, MetricCard, LabelChip } from "@/components/ui/primitives";
 import { AgentConstellation, type AgentStatus } from "@/components/ui/AgentConstellation";
+import { getReadiness, type SystemReadiness } from "@/lib/api-client";
+import {
+  ApiUnavailableBanner,
+  WorkerUnavailableBanner,
+  ModelUnavailableNotice,
+} from "@/components/ui/StateViews";
 
 /* ─── Telemetry metrics data (21st.dev Stats Bento pattern) ──────────────── */
 const METRICS = [
@@ -133,12 +140,34 @@ function AreaSparkline({ data, color }: { data: number[]; color: string }) {
 
 export default function DashboardPage() {
   const hasScans = RECENT_SCANS.length > 0;
+  const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null);
+
+  const fetchStatus = () => {
+    setApiError(null);
+    getReadiness()
+      .then((res) => setReadiness(res))
+      .catch((err) => {
+        setApiError(err?.message || "Failed to reach RAVEN API");
+      });
+  };
+
+  useEffect(() => {
+    fetchStatus();
+  }, []);
 
   return (
     <div className="flex flex-col min-h-full">
       <TopBar breadcrumbs={[{ label: "Mission Control" }, { label: "Operations Dashboard" }]} />
 
       <main className="flex-1 px-6 py-8 space-y-8 max-w-7xl w-full mx-auto">
+        {/* Readiness Banners (Item 13) */}
+        {apiError && <ApiUnavailableBanner error={apiError} onRetry={fetchStatus} />}
+        {readiness && !readiness.queue.ready && <WorkerUnavailableBanner />}
+        {readiness && !readiness.model.configured && (
+          <ModelUnavailableNotice modelName={readiness.model.name} />
+        )}
+
         {/* Header bar */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>

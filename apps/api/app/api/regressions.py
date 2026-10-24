@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import sqlite3
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +17,8 @@ from app.domain.entities import ScanConfig
 from app.domain.errors import NotFoundError, RavenError
 from app.infrastructure.db.repository import Repositories
 from app.infrastructure.queue.sqlite_queue import SqliteJobQueue
+
+logger = logging.getLogger("raven.api.regressions")
 
 router = APIRouter(prefix="/api/regressions", tags=["regressions"])
 
@@ -46,15 +50,15 @@ def list_regressions(
                         case_json=case.model_dump_json(),
                     )
             items = repos.regressions.list_all(tid)
-        except Exception:
-            pass
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning("Failed to seed baseline regression cases: %s", exc)
 
     parsed = []
     active_count = 0
     for row in items:
         try:
             case_data = json.loads(row["case_json"])
-        except Exception:
+        except (json.JSONDecodeError, TypeError):
             case_data = {"id": row["attack_case_id"]}
         is_active = bool(row["active"])
         if is_active:

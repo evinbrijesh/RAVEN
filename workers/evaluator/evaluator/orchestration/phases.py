@@ -103,6 +103,18 @@ class ScanEngine:
 
         budget = BudgetTracker(budget=scan.config.budget)
         target = self._create_target(scan)
+        if getattr(target, "mode", None) == "evaluation_only":
+            self._set_status(scan_id, ScanStatus.COMPLETED_WITHOUT_RETEST, 1.0)
+            self._emit(
+                scan_id,
+                EventKind.SCAN_COMPLETED,
+                {
+                    "status": "completed_without_retest",
+                    "reason": "External target is evaluation_only; remote hardening cannot be applied without an authorized staging contract.",
+                },
+            )
+            return
+
         try:
             self._set_status(scan_id, ScanStatus.RETESTING, 0.8)
             self._emit(scan_id, EventKind.RETEST_STARTED, {"proposal_id": proposal.proposal_id})
@@ -118,8 +130,26 @@ class ScanEngine:
             )
             runner = SecurityRegressionRunner(judge_ctx, budget, semantic_judge=semantic_judge)
             cases = self._select_cases(scan)
-            after_run, _ = await runner.run_security(target, cases, scan_id, RunPhase.AFTER)
+            after_run, after_verdicts = await runner.run_security(target, cases, scan_id, RunPhase.AFTER)
             self._persist_test_run(after_run)
+            for case, run_id, verdict, transcript in after_verdicts:
+                self._repos.db.execute(
+                    "INSERT OR REPLACE INTO attack_runs (run_id, scan_id, attack_case_id, attempt, phase, started_at, finished_at, status, transcript_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        run_id,
+                        scan_id,
+                        case.id,
+                        1,
+                        RunPhase.AFTER.value,
+                        verdict.created_at.isoformat(),
+                        verdict.created_at.isoformat(),
+                        "completed",
+                        transcript.model_dump_json() if transcript else None,
+                    ),
+                )
+                if transcript is not None:
+                    self._repos.runs.save_transcript(transcript, run_id)
+                self._repos.runs.save_verdict(verdict)
 
             utility_runner = UtilityRegressionRunner()
             benign_cases = self._planner.load_benign_cases()
@@ -198,6 +228,22 @@ class ScanEngine:
 
         findings: list[Finding] = []
         for case, run_id, verdict, transcript in verdicts:
+            self._repos.db.execute(
+                "INSERT OR REPLACE INTO attack_runs (run_id, scan_id, attack_case_id, attempt, phase, started_at, finished_at, status, transcript_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    scan_id,
+                    case.id,
+                    1,
+                    RunPhase.BEFORE.value,
+                    verdict.created_at.isoformat(),
+                    verdict.created_at.isoformat(),
+                    "completed",
+                    transcript.model_dump_json() if transcript else None,
+                ),
+            )
+            if transcript is not None:
+                self._repos.runs.save_transcript(transcript, run_id)
             self._repos.runs.save_verdict(verdict)
             self._emit(
                 scan_id,
@@ -223,7 +269,7 @@ class ScanEngine:
                 )
                 import hashlib
 
-                finding_key = hashlib.sha256(f"{scan_id}:{case.id}".encode("utf-8")).hexdigest()[:12]
+                finding_key = hashlib.sha256(f"{scan_id}:{case.id}".encode()).hexdigest()[:12]
                 finding = Finding(
                     finding_id=f"find_{finding_key}",
                     scan_id=scan_id,

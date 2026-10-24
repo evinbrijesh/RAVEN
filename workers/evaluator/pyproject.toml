@@ -24,6 +24,7 @@ packages = ["evaluator"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+python_classes = []
 
 [tool.ruff]
 line-length = 100

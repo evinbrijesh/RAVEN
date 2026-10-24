@@ -18,9 +18,14 @@ from app.domain.entities import (
     TargetRequest,
     TargetResponse,
 )
+from app.domain.errors import RavenError
 from app.security.ssrf import assert_consent_header, validate_target_url
 
 from evaluator.targets.base import TargetAdapter
+
+
+class TargetHardeningNotSupported(RavenError):
+    code = "TARGET_HARDENING_NOT_SUPPORTED"
 
 
 class HttpTargetAdapter(TargetAdapter):
@@ -34,12 +39,14 @@ class HttpTargetAdapter(TargetAdapter):
         response_json_path: str = "response",
         timeout_seconds: float = 30.0,
         allow_local_dev: bool = False,
+        mode: str = "evaluation_only",
     ) -> None:
         self.endpoint_url = endpoint_url
         self.headers = headers or {}
         self.request_template = request_template or {"message": "{prompt}"}
         self.response_json_path = response_json_path
         self.timeout_seconds = timeout_seconds
+        self.mode = mode
 
         # Step 0: Pre-flight security verification
         validate_target_url(self.endpoint_url, allow_local_in_dev=allow_local_dev)
@@ -98,6 +105,11 @@ class HttpTargetAdapter(TargetAdapter):
     async def apply_temporary_policy(
         self, policy: PolicyCandidate | None, prompt_patch: str | None = None
     ) -> None:
+        if self.mode == "evaluation_only":
+            raise TargetHardeningNotSupported(
+                "External HTTP target is in 'evaluation_only' mode. "
+                "Hardening diffs cannot be applied to remote applications without an authorized staging contract."
+            )
         self._temporary_policy = policy
         self._temporary_prompt_patch = prompt_patch
 

@@ -45,10 +45,12 @@ class ApproveHardening:
 
         # Idempotency check: if already approved/decided for this proposal
         existing = self._repos.approvals.get_for_proposal(proposal_id)
-        if existing is not None:
-            # If the scan has already advanced, return existing record idempotently
-            if scan.status in (ScanStatus.RETESTING, ScanStatus.COMPLETED, ScanStatus.COMPLETED_WITHOUT_RETEST):
-                return existing
+        if existing is not None and scan.status in (
+            ScanStatus.RETESTING,
+            ScanStatus.COMPLETED,
+            ScanStatus.COMPLETED_WITHOUT_RETEST,
+        ):
+            return existing
 
         if scan.status != ScanStatus.AWAITING_APPROVAL:
             raise ValidationFailed(

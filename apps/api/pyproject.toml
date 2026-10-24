@@ -23,6 +23,7 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_classes = []
 
 [tool.ruff]
 line-length = 100

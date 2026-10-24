@@ -122,7 +122,9 @@ class SecurityRegressionRunner:
             llm_result = None
             if self._semantic_judge is not None:
                 llm_result = await self._semantic_judge.evaluate(case, transcript)
-            verdict = self._resolver.resolve(scan_id, run_id, rule_result, llm_result, transcript)
+            verdict = self._resolver.resolve(
+                scan_id, run_id, rule_result, llm_result, transcript, case=case
+            )
             outcome = {
                 "result": {
                     **_case_metadata(case),

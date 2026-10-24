@@ -238,3 +238,34 @@ export function runRegressionSuite(targetId = "shophelper-local"): Promise<{ sca
   });
 }
 
+export interface SystemReadiness {
+  ready: boolean;
+  status: string;
+  database: {
+    migrated: boolean;
+    url_kind: string;
+    error: string | null;
+  };
+  queue: {
+    ready: boolean;
+    kind: string;
+  };
+  fixtures: {
+    ready: boolean;
+    available: string[];
+  };
+  model: {
+    configured: boolean;
+    provider: string;
+    name: string;
+  };
+}
+
+export function getReadiness(): Promise<SystemReadiness> {
+  return request<SystemReadiness>("/ready");
+}
+
+export function getHealth(): Promise<{ status: string; service: string }> {
+  return request<{ status: string; service: string }>("/health");
+}
+

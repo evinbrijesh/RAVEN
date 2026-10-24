@@ -26,6 +26,11 @@ class WorkerSettings(ApiSettings):
         return Path(self.fixtures_dir) if self.fixtures_dir else repo_root() / "fixtures" / "shophelper"
 
 
+def clear_settings_cache() -> None:
+    get_api_settings.cache_clear()
+    get_worker_settings.cache_clear()
+
+
 @lru_cache
 def get_worker_settings() -> WorkerSettings:
     # Reuse the API settings loader (same env prefix) and overlay defaults.
@@ -48,3 +53,4 @@ def get_worker_settings() -> WorkerSettings:
     if "RAVEN_FIXTURES_DIR" in os.environ:
         settings.fixtures_dir = os.environ["RAVEN_FIXTURES_DIR"]
     return settings
+

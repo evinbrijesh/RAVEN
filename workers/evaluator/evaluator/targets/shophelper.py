@@ -187,10 +187,19 @@ class ShopHelperLocalAdapter:
     def _handle_benign(self, message: str) -> TargetResponse:
         if "order" in message and "status" in message:
             order_id = self._parse_order_id(message)
+            context = self._build_tool_context(message, order_id, 0.0)
+            decision = self._gateway.authorize("get_order", {"order_id": order_id or ""}, context)
+            if not decision.allowed:
+                return TargetResponse(
+                    message="Order status lookup denied by policy gateway.",
+                    blocked_by_policy=True,
+                    policy_reason=decision.reason,
+                )
             order = self._orders.get(order_id) if order_id else None
             if order:
                 return TargetResponse(
-                    message=f"Order {order['order_id']} is {order['status']}."
+                    message=f"Order {order['order_id']} is {order['status']}.",
+                    tool_calls=[{"tool": "get_order", "arguments": {"order_id": order_id}, "simulated": True}],
                 )
             return TargetResponse(message="I couldn't find that order.")
         if "return policy" in message or "return" in message:
