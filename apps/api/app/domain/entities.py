@@ -132,6 +132,18 @@ class LlmJudgeResult(BaseModel):
     prompt_version: str = ""
 
 
+class ModelCallRecord(BaseModel):
+    call_id: str
+    role: str
+    model_name: str
+    prompt_version: str
+    status: str
+    duration_ms: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class Verdict(BaseModel):
     """Combined judge output (docs/API_CONTRACT.md §8)."""
 

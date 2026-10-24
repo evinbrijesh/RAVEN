@@ -29,11 +29,13 @@ from app.domain.errors import RavenError
 from app.infrastructure.db.repository import Repositories
 
 from evaluator.attacks.planner import AttackPlanner
+from evaluator.config import get_worker_settings
 from evaluator.hardening.policy_compiler import PolicyCompiler
 from evaluator.hardening.prompt_hardener import PromptHardener
 from evaluator.hardening.proposal_validator import ProposalValidator
 from evaluator.judges.deterministic import JudgeContext
 from evaluator.judges.resolver import VerdictResolver
+from evaluator.judges.semantic import SemanticJudge, get_model_client
 from evaluator.orchestration.budgets import BudgetTracker
 from evaluator.orchestration.state_machine import transition
 from evaluator.regression.security_runner import SecurityRegressionRunner
@@ -55,6 +57,14 @@ class ScanEngine:
         self._repos = repos
         self._fixtures_path = fixtures_path
         self._planner = AttackPlanner()
+        settings = get_worker_settings()
+        self._model_client = get_model_client(
+            provider=settings.model_provider,
+            api_key=settings.model_api_key,
+            model_name=settings.model_name,
+            base_url=settings.model_base_url,
+        )
+        self._model_name = settings.model_name
 
     async def run(self, scan_id: str) -> None:
         scan = self._repos.scans.get(scan_id)
@@ -97,7 +107,12 @@ class ScanEngine:
             )
             profile = await target.profile()
             judge_ctx = _judge_context(target, profile)
-            runner = SecurityRegressionRunner(judge_ctx, budget)
+            semantic_judge = (
+                SemanticJudge(self._model_client, budget, self._model_name)
+                if self._model_client is not None
+                else None
+            )
+            runner = SecurityRegressionRunner(judge_ctx, budget, semantic_judge=semantic_judge)
             cases = self._planner.select(
                 [c.value for c in scan.config.attack_categories],
                 scan.config.budget.max_attack_cases,
@@ -143,7 +158,14 @@ class ScanEngine:
             scan.config.budget.max_attack_cases,
         )
         judge_ctx = _judge_context(target, profile)
-        runner = SecurityRegressionRunner(judge_ctx, budget, VerdictResolver())
+        semantic_judge = (
+            SemanticJudge(self._model_client, budget, self._model_name)
+            if self._model_client is not None
+            else None
+        )
+        runner = SecurityRegressionRunner(
+            judge_ctx, budget, VerdictResolver(), semantic_judge=semantic_judge
+        )
 
         self._set_status(scan_id, ScanStatus.JUDGING, 0.4)
         before_run, verdicts = await runner.run_security(target, cases, scan_id, RunPhase.BEFORE)

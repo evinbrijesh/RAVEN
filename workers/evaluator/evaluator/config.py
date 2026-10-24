@@ -38,6 +38,10 @@ def get_worker_settings() -> WorkerSettings:
         redis_url=api.redis_url,
         cors_origins=api.cors_origins,
         evidence_dir=api.evidence_dir,
+        model_provider=api.model_provider,
+        model_name=api.model_name,
+        model_api_key=api.model_api_key,
+        model_base_url=api.model_base_url,
     )
     if "RAVEN_WORKER_CONCURRENCY" in os.environ:
         settings.worker_concurrency = int(os.environ["RAVEN_WORKER_CONCURRENCY"])

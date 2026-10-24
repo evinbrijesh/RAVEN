@@ -24,6 +24,7 @@ from app.domain.enums import FindingLabel, RunPhase, TestRunKind
 from evaluator.attacks.mutation import mutate_seed
 from evaluator.judges.deterministic import DeterministicJudge, JudgeContext
 from evaluator.judges.resolver import VerdictResolver
+from evaluator.judges.semantic import SemanticJudge
 from evaluator.orchestration.budgets import BudgetTracker
 from evaluator.targets.base import TargetAdapter
 
@@ -36,10 +37,12 @@ class SecurityRegressionRunner:
         judge_context: JudgeContext,
         budget: BudgetTracker,
         resolver: VerdictResolver | None = None,
+        semantic_judge: SemanticJudge | None = None,
     ) -> None:
         self._judge = DeterministicJudge(judge_context)
         self._budget = budget
         self._resolver = resolver or VerdictResolver()
+        self._semantic_judge = semantic_judge
 
     async def run_security(
         self,
@@ -104,7 +107,10 @@ class SecurityRegressionRunner:
 
             transcript = _transcript_from_response(run_id, prompt, response)
             rule_result = await self._judge.evaluate(case, transcript)
-            verdict = self._resolver.resolve(scan_id, run_id, rule_result, None, transcript)
+            llm_result = None
+            if self._semantic_judge is not None:
+                llm_result = await self._semantic_judge.evaluate(case, transcript)
+            verdict = self._resolver.resolve(scan_id, run_id, rule_result, llm_result, transcript)
             outcome = {
                 "result": {
                     "attack_id": case.id,

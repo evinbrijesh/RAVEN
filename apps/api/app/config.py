@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     evidence_dir: str = "./data/evidence"
 
+    # Model plane
+    model_provider: str = "none"
+    model_name: str = "meta-llama/llama-3.3-70b-instruct:free"
+    model_api_key: str = ""
+    model_base_url: str = "https://openrouter.ai/api/v1"
+
     @property
     def database_path(self) -> str:
         """Extract the filesystem path from the SQLite URL (MVP profile)."""
