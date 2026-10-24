@@ -494,3 +494,32 @@ export interface ApiError {
   retryable?: boolean;
   scan_status?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Regression Suite types
+// ---------------------------------------------------------------------------
+
+export interface RegressionCase {
+  regression_id: string;
+  target_id: string;
+  attack_case_id: string;
+  active: boolean;
+  created_at: string;
+  case: {
+    id: string;
+    category?: string;
+    goal?: string;
+    seed_prompt?: string;
+    severity?: string;
+    references?: string[];
+    success_rule?: string;
+  };
+}
+
+export interface RegressionsResponse {
+  target_id: string;
+  total: number;
+  active_count: number;
+  items: RegressionCase[];
+}
+

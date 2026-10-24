@@ -43,6 +43,8 @@ const DEFAULT_CONFIG: ScanConfig = {
 
 export default function NewScanForm() {
   const router = useRouter();
+  const [targetMode, setTargetMode] = useState<"local" | "http">("local");
+  const [externalUrl, setExternalUrl] = useState("");
   const [categories, setCategories] = useState<AttackCategory[]>([
     ...ATTACK_CATEGORIES,
   ]);
@@ -70,6 +72,15 @@ export default function NewScanForm() {
   }
 
   function validate(): string | null {
+    if (targetMode === "http") {
+      const trimmed = externalUrl.trim();
+      if (!trimmed) {
+        return "Please enter a valid HTTP(S) endpoint URL.";
+      }
+      if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+        return "External target URL must start with http:// or https://.";
+      }
+    }
     if (categories.length === 0) {
       return "Select at least one attack category.";
     }
@@ -102,7 +113,7 @@ export default function NewScanForm() {
     setValidationError(null);
     setSubmitting(true);
     const config: ScanConfig = {
-      target_id: "shophelper-local",
+      target_id: targetMode === "local" ? "shophelper-local" : externalUrl.trim(),
       attack_categories: categories,
       max_attempts_per_attack: maxAttempts,
       enable_mutation: enableMutation,
@@ -133,16 +144,83 @@ export default function NewScanForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-      {/* Target — fixed for MVP, not editable */}
+      {/* Target selection */}
       <fieldset className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-        <legend className="px-1 text-sm font-medium text-zinc-300">Target</legend>
-        <div className="flex items-center gap-3">
-          <span className="rounded bg-zinc-800 px-2 py-1 font-mono text-sm text-zinc-200">
-            shophelper-local
-          </span>
-          <span className="text-xs text-zinc-500">
-            Fixed for the MVP — only the built-in demo bot can be scanned.
-          </span>
+        <legend className="px-1 text-sm font-medium text-zinc-300">Target Selection</legend>
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label
+              className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors ${
+                targetMode === "local"
+                  ? "border-indigo-500 bg-indigo-500/10 text-zinc-100"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:border-zinc-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="targetMode"
+                value="local"
+                checked={targetMode === "local"}
+                onChange={() => setTargetMode("local")}
+                className="mt-0.5 h-4 w-4 accent-indigo-600"
+              />
+              <div className="space-y-1">
+                <span className="block font-medium text-sm text-zinc-200">
+                  Built-in Demo Bot (Simulated)
+                </span>
+                <span className="block text-xs text-zinc-400">
+                  <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">shophelper-local</code> — In-memory vulnerable e-commerce assistant with canary and refund tool.
+                </span>
+              </div>
+            </label>
+
+            <label
+              className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 transition-colors ${
+                targetMode === "http"
+                  ? "border-indigo-500 bg-indigo-500/10 text-zinc-100"
+                  : "border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:border-zinc-700"
+              }`}
+            >
+              <input
+                type="radio"
+                name="targetMode"
+                value="http"
+                checked={targetMode === "http"}
+                onChange={() => setTargetMode("http")}
+                className="mt-0.5 h-4 w-4 accent-indigo-600"
+              />
+              <div className="space-y-1">
+                <span className="block font-medium text-sm text-zinc-200">
+                  External HTTP Endpoint (Mode A)
+                </span>
+                <span className="block text-xs text-zinc-400">
+                  Public JSON chat API. Protected by strict SSRF guardrails and target consent verification.
+                </span>
+              </div>
+            </label>
+          </div>
+
+          {targetMode === "http" && (
+            <div className="rounded-md border border-zinc-800/80 bg-zinc-950/60 p-3 space-y-2">
+              <label htmlFor="externalUrl" className="block text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                Target Endpoint URL
+              </label>
+              <input
+                id="externalUrl"
+                type="url"
+                value={externalUrl}
+                onChange={(e) => setExternalUrl(e.target.value)}
+                placeholder="https://api.your-org.com/v1/chat"
+                className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-zinc-100 placeholder-zinc-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <div className="flex items-start gap-2 text-xs text-amber-400/90">
+                <span className="font-semibold">SSRF Protection:</span>
+                <span className="text-zinc-400">
+                  Private IPv4/IPv6 (RFC 1918), loopback, link-local, and cloud metadata (169.254.169.254) are rejected by RAVEN. Scan requests send <code className="rounded bg-zinc-800 px-1 text-zinc-300">X-Raven-Scan-Consent: true</code>.
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </fieldset>
 

@@ -14,12 +14,26 @@ TARGET_ALLOWLIST: frozenset[str] = frozenset({"shophelper-local"})
 
 
 def assert_target_allowed(target_id: str) -> None:
-    if target_id not in TARGET_ALLOWLIST:
-        raise TargetNotAllowed(
-            f"Target '{target_id}' is not in the built-in allowlist.",
-            details={"allowed": sorted(TARGET_ALLOWLIST)},
-        )
+    if target_id in TARGET_ALLOWLIST:
+        return
+    if target_id.startswith("http://") or target_id.startswith("https://"):
+        from app.security.ssrf import validate_target_url
+        validate_target_url(target_id)
+        return
+    raise TargetNotAllowed(
+        f"Target '{target_id}' is not allowed. Must be 'shophelper-local' or a valid public HTTP(S) endpoint.",
+        details={"allowed": sorted(TARGET_ALLOWLIST)},
+    )
 
 
 def is_target_allowed(target_id: str) -> bool:
-    return target_id in TARGET_ALLOWLIST
+    if target_id in TARGET_ALLOWLIST:
+        return True
+    if target_id.startswith("http://") or target_id.startswith("https://"):
+        try:
+            from app.security.ssrf import validate_target_url
+            validate_target_url(target_id)
+            return True
+        except Exception:
+            return False
+    return False

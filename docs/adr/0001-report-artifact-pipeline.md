@@ -268,5 +268,46 @@ Resolution of the architecture-review blockers:
    HTTP target adapter is deferred; the helper is not wired into any request
    path. Must be closed before any non-fixture target is enabled.
 
-Merge gate status: `make test` (56 API + 30 worker tests) and `make lint`
+Merge gate status: `make test` (61 API + 30 worker tests) and `make lint`
 (ruff ×2 + tsc) pass; web `next build` passes.
+
+## Post-implementation review round (2026-10-25)
+
+A second review pass over the implementation found and fixed:
+
+- **Truncation was dead code** — `truncate_messages` existed but was never
+  called; artifacts claimed truncation while shipping full transcripts.
+  Fixed: `truncate_transcripts` walks the payload in `service.generate`
+  before hashing.
+- **Artifact idempotency was broken** — per-request `report_id`/`generated_at`
+  made markdown/SARIF hashes change every GET (unbounded artifact growth) and
+  the JSON header pointed at a stale artifact. Fixed: `report_id` is derived
+  from the content hash and `generated_at` comes from scan state, so identical
+  evidence produces byte-identical projections that dedupe for all formats.
+- **SARIF 2.1.0 compliance** — `fingerprint` (removed in 2.1.0) replaced with
+  `partialFingerprints.ravenFindingV1`; level now follows severity
+  (critical/high → error, medium → warning, low/needs_review → note);
+  `automationDetails.id: raven/{target_id}` added; non-standard
+  `executionComplete` dropped; `canary_leakage` rule aligned to LLM07 per the
+  mapping table.
+- **False-clean guard** — rule 5 now requires `not_evaluated == 0` (otherwise
+  `inconclusive`), and `regression_detected` results force
+  `confirmed_vulnerable`.
+- **Transcript egress endpoint redacted** —
+  `GET /findings/{id}/transcript` now scrubs messages, tool args, and
+  timeline details with the scan canary + PII/secret patterns.
+- **Redaction coverage widened** — sensitive payload keys (`api_key`,
+  `authorization`, `token`, `secret`, `password`, …) are dropped wholesale;
+  `ghp_*`/`AKIA*`/`xox*` token and `x-api-key` header patterns added.
+- **Worker regression saves** — `_save_regressions` now persists the real
+  catalog `AttackCase` (no stubs) and dedupes per target; a partial unique
+  index (`uq_regression_cases_active`) makes the dedupe race-free.
+- **Promote endpoint** — `CatalogMissing` maps to 400 instead of a 500.
+
+Known remaining gaps (accepted for the MVP, non-blocking): per-scan token
+totals not persisted (`model_usage` token fields `null`); model-call records
+not persisted as rows; retest budget is per-phase (a full scan can spend up to
+2× `max_model_calls`); summary counts are computed from the before-run;
+unknown evidence ref kinds are coerced to `run`; markdown table cells escape
+pipes but inline backticks are not escaped; the transcript endpoint resolves
+the first run for the attack rather than the finding's exact run ref.

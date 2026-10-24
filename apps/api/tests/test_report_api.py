@@ -335,3 +335,19 @@ def test_report_partial_scan_gets_partial_verdict(client: TestClient) -> None:
     body = response.json()
     assert body["summary"]["verdict"] == "partial"
     assert len(body["limitations"]) >= 2
+
+
+def test_finding_transcript_endpoint_redacts_canary(client: TestClient) -> None:
+    """Evidence egress through the transcript endpoint is redacted too (M-5)."""
+    scan_id = _seed_completed_scan(client)
+    response = client.get(f"/api/scans/{scan_id}/findings/find_1/transcript")
+    assert response.status_code == 200
+    body = response.text
+    assert "CANARY-E2E-9999" not in body
+    assert "[REDACTED:canary]" in body
+
+
+def test_finding_transcript_unknown_finding_404(client: TestClient) -> None:
+    scan_id = _seed_completed_scan(client)
+    response = client.get(f"/api/scans/{scan_id}/findings/find_missing/transcript")
+    assert response.status_code == 404

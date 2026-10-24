@@ -28,6 +28,7 @@ interface TopBarProps {
 /* ─── Command palette (21st.dev modal pattern) ─────────────────────────── */
 function CommandPalette({ onClose }: { onClose: () => void }) {
   const commands = [
+    { label: "Go to Operations Dashboard", kbd: "⌘ D", href: "/dashboard", icon: Activity },
     { label: "Start new security scan", kbd: "⌘ N", href: "/scans/new", icon: Shield },
     { label: "Jump to findings & triage", kbd: "⌘ F", href: "/scans/scan_123/findings", icon: Layers },
     { label: "Review hardening diff", kbd: "⌘ H", href: "/scans/scan_123/hardening", icon: Terminal },

@@ -108,17 +108,53 @@ function AgentNodeSvg({
       aria-label={meta.label}
       className="group transition-opacity duration-200"
     >
-      {/* 2s ease-in-out breathing ring for active agent */}
+      {/* 2s ease-in-out breathing ring for active agent (centered via SVG animate on radius) */}
       {isActive && (
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r + 8}
-          fill="none"
-          stroke="#2DD4BF"
-          strokeWidth={1.5}
-          className="agent-ring-active animate-breathe"
-        />
+        <g>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r + 6}
+            fill="rgba(45,212,191,0.06)"
+            stroke="#2DD4BF"
+            strokeWidth={1.5}
+            style={{ filter: "drop-shadow(0 0 6px rgba(45,212,191,0.6))" }}
+          >
+            <animate
+              attributeName="r"
+              values={`${r + 5}; ${r + 9}; ${r + 5}`}
+              dur="2s"
+              repeatCount="indefinite"
+              calcMode="spline"
+              keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"
+            />
+            <animate
+              attributeName="stroke-opacity"
+              values="0.35; 0.95; 0.35"
+              dur="2s"
+              repeatCount="indefinite"
+              calcMode="spline"
+              keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"
+            />
+            <animate
+              attributeName="stroke-width"
+              values="1; 1.8; 1"
+              dur="2s"
+              repeatCount="indefinite"
+              calcMode="spline"
+              keySplines="0.4 0 0.2 1; 0.4 0 0.2 1"
+            />
+          </circle>
+          <circle
+            cx={cx}
+            cy={cy}
+            r={r + 3}
+            fill="none"
+            stroke="#2DD4BF"
+            strokeWidth={1}
+            strokeOpacity={0.5}
+          />
+        </g>
       )}
 
       {/* Node shape (Circle or Square for Human) */}
@@ -378,32 +414,38 @@ export function AgentConstellation({
           );
         })}
 
-        {/* Live Mono Caption under Active Node */}
+        {/* Live Mono Caption for Active Nodes (smart positioning and dynamic width) */}
         {!compact && agents
           .filter((a) => a.state === "active" && a.caption)
           .map((a) => {
             const [nx, ny] = POSITIONS[a.id];
+            const text = `${a.id}: ${a.caption}`;
+            const pillW = Math.min(240, Math.max(130, text.length * 6.6 + 20));
+            // Top row nodes (ny < 0.35) get caption above; bottom row gets caption below
+            const isTopRow = ny < 0.35;
+            const pillY = isTopRow ? py(ny) - nodeR - 28 : py(ny) + nodeR + 34;
+
             return (
-              <g key={a.id} className="animate-fade-in">
+              <g key={a.id} className="animate-fade-in pointer-events-none">
                 <rect
-                  x={px(nx) - 130}
-                  y={py(ny) + nodeR + 34}
-                  width={260}
+                  x={px(nx) - pillW / 2}
+                  y={pillY}
+                  width={pillW}
                   height={18}
                   rx={4}
                   fill="#0A0D12"
-                  stroke="rgba(45,212,191,0.3)"
+                  stroke="rgba(45,212,191,0.4)"
                   strokeWidth={1}
                 />
                 <text
                   x={px(nx)}
-                  y={py(ny) + nodeR + 46}
+                  y={pillY + 12}
                   textAnchor="middle"
-                  fontSize={9}
+                  fontSize={8.5}
                   fill="#2DD4BF"
                   style={{ fontFamily: "var(--font-mono, monospace)" }}
                 >
-                  {a.id}: {a.caption}
+                  {text}
                 </text>
               </g>
             );

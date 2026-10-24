@@ -1,3 +1,5 @@
+"use client";
+
 import Demo from "@/components/ui/demo";
 import TopBar from "@/components/ui/TopBar";
 

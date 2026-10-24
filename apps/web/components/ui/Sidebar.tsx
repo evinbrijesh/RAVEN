@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Activity,
   Cpu,
+  Sparkles,
 } from "lucide-react";
 import { MiniConstellation, type AgentStatus } from "@/components/ui/AgentConstellation";
 
@@ -30,7 +31,8 @@ const DEMO_AGENTS: AgentStatus[] = [
 
 /* ─── Nav items with 21st.dev style icons & badges ─────────────────────── */
 const NAV = [
-  { href: "/",           label: "Dashboard",       icon: LayoutDashboard, kbd: "1" },
+  { href: "/",           label: "Overview",        icon: Sparkles,        kbd: "H" },
+  { href: "/dashboard",  label: "Dashboard",       icon: LayoutDashboard, kbd: "D" },
   { href: "/scans/new",  label: "New Scan",        icon: PlusCircle,      kbd: "N" },
   { href: "/scans",      label: "Scans",           icon: History,         kbd: "S" },
   { href: "/regression", label: "Regression Suite",icon: ShieldCheck,     kbd: "R" },
@@ -128,7 +130,7 @@ export default function Sidebar({
 
       {/* Mini Constellation & Mission Telemetry */}
       {!collapsed && (
-        <div className="border-t border-[var(--border-hairline)] px-3 py-3 space-y-3">
+        <div className="border-t border-[var(--border-hairline)] px-3 pt-3 pb-8 space-y-3">
           <div className="flex items-center justify-between text-[10px] font-mono text-[var(--text-muted)] px-1">
             <span className="flex items-center gap-1.5">
               <Cpu className="h-3 w-3 text-teal-400" />

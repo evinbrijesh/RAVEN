@@ -26,7 +26,7 @@ def test_create_scan_rejects_unknown_target(client: TestClient) -> None:
         json={"target_id": "https://evil.example.com", "attack_categories": ["tool_misuse"]},
     )
     assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "TARGET_NOT_ALLOWED"
+    assert response.json()["detail"]["code"] in {"TARGET_NOT_ALLOWED", "SSRF_VALIDATION_FAILED"}
 
 
 def test_create_scan_rejects_too_many_attempts(client: TestClient) -> None:

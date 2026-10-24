@@ -7,6 +7,7 @@ from app.domain.errors import TargetNotAllowed, ValidationFailed
 from app.domain.value_objects import Budget
 from app.security.limits import clamp_budget, validate_scan_config
 from app.security.redaction import redact, redact_mapping
+from app.security.ssrf import SSRFValidationError
 
 
 def test_redact_email_and_api_key() -> None:
@@ -36,7 +37,7 @@ def test_clamp_budget_enforces_hard_caps() -> None:
 def test_validate_scan_config_rejects_unknown_target() -> None:
     try:
         validate_scan_config(ScanConfig(target_id="http://attacker.example"))
-    except TargetNotAllowed:
+    except (TargetNotAllowed, SSRFValidationError):
         pass  # expected
     else:
         raise AssertionError("unknown target must be rejected")

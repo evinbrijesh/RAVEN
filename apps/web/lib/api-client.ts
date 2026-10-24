@@ -7,7 +7,8 @@ import type {
   ApproveHardeningResponse,
   CreateScanResponse,
   FindingsResponse,
-  HardeningProposal,
+  RegressionCase,
+  RegressionsResponse,
   Report,
   ScanConfig,
   ScanListItem,
@@ -217,3 +218,22 @@ export async function getReportText(
 export function reportFilename(scanId: string, format: ReportFormat): string {
   return `raven-${scanId}-report.${REPORT_EXTENSIONS[format]}`;
 }
+
+export function listRegressions(targetId = "shophelper-local"): Promise<RegressionsResponse> {
+  return request<RegressionsResponse>(`/api/regressions?target_id=${encodeURIComponent(targetId)}`);
+}
+
+export function toggleRegression(regressionId: string): Promise<{ regression_id: string; active: boolean; status: string }> {
+  return request<{ regression_id: string; active: boolean; status: string }>(
+    `/api/regressions/${encodeURIComponent(regressionId)}/toggle`,
+    { method: "POST" }
+  );
+}
+
+export function runRegressionSuite(targetId = "shophelper-local"): Promise<{ scan_id: string; status: string; message: string }> {
+  return request<{ scan_id: string; status: string; message: string }>("/api/regressions/run", {
+    method: "POST",
+    body: JSON.stringify({ target_id: targetId }),
+  });
+}
+

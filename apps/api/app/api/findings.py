@@ -25,6 +25,128 @@ def list_findings(
     return {"items": [f.model_dump(mode="json") for f in findings]}
 
 
+@router.get("/{scan_id}/topology")
+def get_target_topology(
+    scan_id: str, repos: Repositories = Depends(get_repositories)
+) -> dict[str, object]:
+    """Return the ShopHelper target architecture component map pinned to scan findings."""
+    scan = repos.scans.get(scan_id)
+    if scan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=NotFoundError(f"Scan '{scan_id}' not found.").to_payload(),
+        )
+
+    findings: list[Finding] = repos.findings.list_for_scan(scan_id)
+    is_hardened = scan.status.value in ("hardening_approved", "completed", "retesting", "retest_completed")
+
+    # Map findings by component
+    findings_by_comp: dict[str, list[dict[str, object]]] = {
+        "user_input": [],
+        "input_guard": [],
+        "system_prompt": [],
+        "llm_core": [],
+        "tool_gateway": [],
+        "data_store": [],
+        "output_guard": [],
+    }
+    for f in findings:
+        comp = f.weak_point.component if f.weak_point else None
+        if not comp:
+            # Infer from category if not explicitly set
+            if f.category.value == "canary_leakage":
+                comp = "system_prompt"
+            elif f.category.value == "tool_misuse":
+                comp = "tool_gateway"
+            elif f.category.value == "sensitive_data":
+                comp = "data_store"
+            else:
+                comp = "input_guard"
+        if comp in findings_by_comp:
+            findings_by_comp[comp].append({
+                "finding_id": f.finding_id,
+                "attack_id": f.attack_id,
+                "severity": f.severity.value,
+                "summary": f.summary,
+                "weak_point": f.weak_point.model_dump(mode="json") if f.weak_point else None,
+            })
+
+    # Build architecture component nodes
+    components = [
+        {
+            "id": "user_input",
+            "name": "User Input",
+            "role": "Entrypoint",
+            "status": "normal",
+            "description": "Customer message payload ingress",
+            "findings_count": len(findings_by_comp["user_input"]),
+            "findings": findings_by_comp["user_input"],
+        },
+        {
+            "id": "input_guard",
+            "name": "Input Guardrail",
+            "role": "Boundary Defense",
+            "status": "blocked" if is_hardened else ("missing_guardrail" if findings_by_comp["input_guard"] else "normal"),
+            "description": "Pre-execution prompt injection & jailbreak filter" if is_hardened else "No input guardrail present in baseline",
+            "findings_count": len(findings_by_comp["input_guard"]),
+            "findings": findings_by_comp["input_guard"],
+        },
+        {
+            "id": "system_prompt",
+            "name": "System Prompt",
+            "role": "Context & Constraints",
+            "status": "blocked" if is_hardened else ("failed" if findings_by_comp["system_prompt"] else "normal"),
+            "description": "Instructions with canary token at line 3 (hardened with anti-leakage constraints)" if is_hardened else "Canary token on line 3 vulnerable to prompt extraction",
+            "findings_count": len(findings_by_comp["system_prompt"]),
+            "findings": findings_by_comp["system_prompt"],
+        },
+        {
+            "id": "llm_core",
+            "name": "LLM Core",
+            "role": "Generation Engine",
+            "status": "normal",
+            "description": "Inference runtime generating assistant actions & tool calls",
+            "findings_count": 0,
+            "findings": [],
+        },
+        {
+            "id": "tool_gateway",
+            "name": "Tool Gateway",
+            "role": "Action Authorization",
+            "status": "blocked" if is_hardened else ("failed" if findings_by_comp["tool_gateway"] else "normal"),
+            "description": "Order verification policy enforced before issue_refund" if is_hardened else "issue_refund permitted without verified order number",
+            "findings_count": len(findings_by_comp["tool_gateway"]),
+            "findings": findings_by_comp["tool_gateway"],
+        },
+        {
+            "id": "data_store",
+            "name": "Customer Data Store",
+            "role": "Persistence Layer",
+            "status": "blocked" if is_hardened else ("failed" if findings_by_comp["data_store"] else "normal"),
+            "description": "Restricted customer lookup with role-based masking" if is_hardened else "Customer records (#1001-#1004) exposed via unconstrained tool queries",
+            "findings_count": len(findings_by_comp["data_store"]),
+            "findings": findings_by_comp["data_store"],
+        },
+        {
+            "id": "output_guard",
+            "name": "Output Guardrail",
+            "role": "Egress Redaction",
+            "status": "blocked" if is_hardened else ("missing_guardrail" if (findings_by_comp["system_prompt"] or findings_by_comp["data_store"]) else "normal"),
+            "description": "Real-time PII & canary regex redaction active" if is_hardened else "No egress redaction filter active",
+            "findings_count": len(findings_by_comp["output_guard"]),
+            "findings": findings_by_comp["output_guard"],
+        },
+    ]
+
+    return {
+        "scan_id": scan_id,
+        "target_id": scan.target.target_id,
+        "is_hardened": is_hardened,
+        "disclaimer": "The map displays where this test suite found weaknesses. An unmarked component indicates no failure was detected in the tested cases, not proof of universal security.",
+        "components": components,
+    }
+
+
 @router.post("/{scan_id}/findings/{finding_id}/promote-regression")
 def promote_finding_to_regression(
     scan_id: str,

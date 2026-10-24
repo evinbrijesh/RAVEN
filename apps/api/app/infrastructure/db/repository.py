@@ -305,10 +305,11 @@ class FindingRepository:
         self._db = db
 
     def save(self, finding: Finding) -> Finding:
+        weak_json = finding.weak_point.model_dump_json() if finding.weak_point else None
         self._db.execute(
             "INSERT OR REPLACE INTO findings (finding_id, scan_id, attack_id,"
             " category, severity, label, confidence, summary, evidence_refs_json,"
-            " needs_review, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " needs_review, status, weak_point_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 finding.finding_id,
                 finding.scan_id,
@@ -321,6 +322,7 @@ class FindingRepository:
                 json.dumps([r.model_dump() for r in finding.evidence_refs]),
                 int(finding.needs_review),
                 finding.status,
+                weak_json,
                 finding.created_at.isoformat(),
             ),
         )
@@ -343,6 +345,7 @@ class FindingRepository:
                 evidence_refs=json.loads(row["evidence_refs_json"]),
                 needs_review=bool(row["needs_review"]),
                 status=row["status"],
+                weak_point=json.loads(row["weak_point_json"]) if "weak_point_json" in row.keys() and row["weak_point_json"] else None,
                 created_at=datetime.fromisoformat(row["created_at"]),
             )
             for row in rows
@@ -364,6 +367,7 @@ class FindingRepository:
             evidence_refs=json.loads(row["evidence_refs_json"]),
             needs_review=bool(row["needs_review"]),
             status=row["status"],
+            weak_point=json.loads(row["weak_point_json"]) if "weak_point_json" in row.keys() and row["weak_point_json"] else None,
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 
@@ -561,6 +565,37 @@ class RegressionRepository:
             (target_id,),
         )
         return [dict(row) for row in rows]
+
+    def list_all(self, target_id: str | None = None) -> list[dict[str, Any]]:
+        if target_id:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases WHERE target_id = ? ORDER BY created_at DESC",
+                (target_id,),
+            )
+        else:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases ORDER BY created_at DESC"
+            )
+        return [dict(row) for row in rows]
+
+    def get(self, regression_id: str) -> dict[str, Any] | None:
+        row = self._db.query_one(
+            "SELECT * FROM regression_cases WHERE regression_id = ?",
+            (regression_id,),
+        )
+        return dict(row) if row else None
+
+    def toggle_active(self, regression_id: str, active: bool | None = None) -> dict[str, Any] | None:
+        row = self.get(regression_id)
+        if not row:
+            return None
+        new_active = (1 if active else 0) if active is not None else (0 if row["active"] == 1 else 1)
+        self._db.execute(
+            "UPDATE regression_cases SET active = ? WHERE regression_id = ?",
+            (new_active, regression_id),
+        )
+        return self.get(regression_id)
+
 
 
 class ReportRepository:

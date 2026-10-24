@@ -84,6 +84,7 @@ class Database:
             ("report_artifacts", "schema_version", "TEXT NOT NULL DEFAULT '1.0'"),
             ("report_artifacts", "generator_version", "TEXT NOT NULL DEFAULT ''"),
             ("report_artifacts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
+            ("findings", "weak_point_json", "TEXT"),
         ]
         for table, column, ddl_type in additions:
             if table not in existing_tables:

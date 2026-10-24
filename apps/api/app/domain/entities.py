@@ -161,6 +161,16 @@ class Verdict(BaseModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class WeakPoint(BaseModel):
+    """Pinpoints where an application weakness was detected in the target architecture."""
+
+    component: str  # system_prompt | input_guard | tool_gateway | output_guard | data_store
+    component_name: str
+    detail: str
+    location: str | None = None
+    status: str = "failed"  # failed | missing_guardrail | blocked | verified
+
+
 class Finding(BaseModel):
     finding_id: str
     scan_id: str
@@ -173,6 +183,7 @@ class Finding(BaseModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     needs_review: bool = False
     status: str = "open"  # open | mitigated | reopened
+    weak_point: WeakPoint | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 

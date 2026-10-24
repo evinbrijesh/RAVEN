@@ -67,12 +67,21 @@ class ScanEngine:
         )
         self._model_name = settings.model_name
 
+    def _create_target(self, target_id: str):
+        if target_id.startswith("http://") or target_id.startswith("https://"):
+            from evaluator.targets.http_adapter import HttpTargetAdapter
+            return HttpTargetAdapter(
+                endpoint_url=target_id,
+                headers={"X-Raven-Scan-Consent": "true"},
+            )
+        return ShopHelperLocalAdapter(self._fixtures_path or None)
+
     async def run(self, scan_id: str) -> None:
         scan = self._repos.scans.get(scan_id)
         if scan is None:
             raise RavenError(f"Scan '{scan_id}' not found.")
         budget = BudgetTracker(budget=scan.config.budget)
-        target = ShopHelperLocalAdapter(self._fixtures_path or None)
+        target = self._create_target(scan.target.target_id)
 
         try:
             profile = await self._phase_recon(scan_id, target, budget)
@@ -99,7 +108,7 @@ class ScanEngine:
             raise RavenError("No proposal to retest.")
 
         budget = BudgetTracker(budget=scan.config.budget)
-        target = ShopHelperLocalAdapter(self._fixtures_path or None)
+        target = self._create_target(scan.target.target_id)
         try:
             self._set_status(scan_id, ScanStatus.RETESTING, 0.8)
             self._emit(scan_id, EventKind.RETEST_STARTED, {"proposal_id": proposal.proposal_id})
@@ -206,6 +215,18 @@ class ScanEngine:
                 FindingLabel.LIKELY_FAILURE,
                 FindingLabel.NEEDS_REVIEW,
             ):
+                from evaluator.judges.weakness import derive_weak_point
+
+                sys_prompt = ""
+                if isinstance(target, ShopHelperLocalAdapter):
+                    sys_prompt = (target.fixtures_path / "system-prompt.txt").read_text(encoding="utf-8")
+
+                weak_pt = derive_weak_point(
+                    case=case,
+                    verdict=verdict,
+                    transcript=transcript,
+                    system_prompt=sys_prompt,
+                )
                 finding = Finding(
                     finding_id=f"find_{uuid.uuid4().hex[:12]}",
                     scan_id=scan_id,
@@ -217,6 +238,7 @@ class ScanEngine:
                     summary=f"{case.goal} — {verdict.resolution.value}",
                     evidence_refs=verdict.evidence_refs,
                     needs_review=verdict.final_label == FindingLabel.NEEDS_REVIEW,
+                    weak_point=weak_pt,
                 )
                 self._repos.findings.save(finding)
                 findings.append(finding)

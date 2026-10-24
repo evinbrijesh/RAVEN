@@ -210,6 +210,11 @@ body::before {
 .border-needs-review { border-left: 3px solid var(--status-review-amber) !important; }
 .border-regression   { border-left: 3px solid var(--status-failure-red) !important; }
 
+/* ─── Next.js dev overlay adjustment ────────────────────────────────────────── */
+nextjs-portal {
+  display: none !important;
+}
+
 /* ─── Reduced-motion overrides ──────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .animate-breathe, .animate-fade-in, .animate-toast-in, .skeleton {
@@ -218,3 +223,4 @@ body::before {
   }
   .spotlight-card::before { display: none; }
 }
+

@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS findings (
     evidence_refs_json TEXT NOT NULL,
     needs_review       INTEGER NOT NULL DEFAULT 0,
     status             TEXT NOT NULL DEFAULT 'open',
+    weak_point_json    TEXT,
     created_at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_findings_status_sev ON findings(status, severity);

@@ -15,7 +15,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import events, findings, policies, reports, scans
+from app.api import events, findings, policies, regressions, reports, scans
 from app.config import Settings, get_settings
 from app.infrastructure.db.repository import Repositories
 from app.infrastructure.db.sqlite import Database
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(scans.router)
     app.include_router(findings.router)
     app.include_router(policies.router)
+    app.include_router(regressions.router)
     app.include_router(reports.router)
     app.include_router(events.router)
 

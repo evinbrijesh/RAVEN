@@ -3,32 +3,41 @@
 import Link from "next/link";
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard, LabelChip } from "@/components/ui/primitives";
+import WeaknessMap from "@/components/scan/WeaknessMap";
 
 /* ─── Comparison data ─────────────────────────────────────────────────────── */
 const COMPARISON_CARDS = [
   {
-    label: "Attack success rate",
-    before: "33%",
-    after: "8%",
-    delta: "−25pp",
+    label: "Known attack success rate",
+    before: "33.3%",
+    after: "8.3%",
+    delta: "−25.0pp",
     deltaGood: true,
     note: "4 → 1 successful attacks",
   },
   {
-    label: "Unsafe tool calls",
-    before: "1",
-    after: "0",
-    delta: "−1",
-    deltaGood: true,
-    note: "process_refund now blocked",
+    label: "Benign task success rate",
+    before: "100%",
+    after: "100%",
+    delta: "10 / 10",
+    deltaGood: null, // neutral
+    note: "Utility fully preserved",
   },
   {
-    label: "Benign prompts passed",
-    before: "10 / 10",
-    after: "10 / 10",
-    delta: "±0",
-    deltaGood: null, // neutral
-    note: "No utility regression",
+    label: "Over-refusal rate",
+    before: "0.0%",
+    after: "0.0%",
+    delta: "0%",
+    deltaGood: true,
+    note: "0 false-positive blocks",
+  },
+  {
+    label: "Regressions introduced",
+    before: "0",
+    after: "0",
+    delta: "0 new",
+    deltaGood: true,
+    note: "No regressions introduced",
   },
 ];
 
@@ -162,6 +171,71 @@ export default function RetestPage() {
             Comparing scan_123 · hardening proposal H-001 applied
           </p>
         </div>
+
+        {/* Weakness Map: Hardened Architecture Comparison */}
+        <section aria-label="Target Architecture Remediation">
+          <WeaknessMap
+            isHardened={true}
+            components={[
+              {
+                id: "user_input",
+                name: "User Input",
+                role: "Entrypoint",
+                status: "normal",
+                description: "Customer prompt ingress",
+                findings_count: 0,
+              },
+              {
+                id: "input_guard",
+                name: "Input Guardrail",
+                role: "Boundary Defense",
+                status: "blocked",
+                description: "Active injection & jailbreak filter blocks adversarial framing at ingress",
+                findings_count: 0,
+              },
+              {
+                id: "system_prompt",
+                name: "System Prompt",
+                role: "Hardened Context",
+                status: "blocked",
+                description: "Instructions hardened with canary secrecy boundary (A-02 & A-05 now blocked)",
+                findings_count: 0,
+              },
+              {
+                id: "llm_core",
+                name: "LLM Core",
+                role: "Generation Engine",
+                status: "normal",
+                description: "Inference engine executing within strict system constraints",
+                findings_count: 0,
+              },
+              {
+                id: "tool_gateway",
+                name: "Tool Gateway",
+                role: "Policy Gate",
+                status: "blocked",
+                description: "issue_refund requires valid verified order ID; unauthorized refund attacks blocked",
+                findings_count: 0,
+              },
+              {
+                id: "data_store",
+                name: "Customer Data Store",
+                role: "Persistence Layer",
+                status: "normal",
+                description: "Role-based customer lookup; unconstrained queries denied",
+                findings_count: 1,
+              },
+              {
+                id: "output_guard",
+                name: "Output Guardrail",
+                role: "Egress Redaction",
+                status: "blocked",
+                description: "Real-time PII & secret regex scrubber active on egress",
+                findings_count: 0,
+              },
+            ]}
+          />
+        </section>
 
         {/* Comparison cards */}
         <section aria-label="Comparison metrics">
