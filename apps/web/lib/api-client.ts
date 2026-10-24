@@ -17,7 +17,8 @@ import type {
 } from "./types";
 
 export const API_BASE_URL: string =
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL ??
+  (typeof window !== "undefined" ? "" : "http://localhost:8000");
 
 export class ApiRequestError extends Error {
   readonly status: number;

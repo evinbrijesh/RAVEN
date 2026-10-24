@@ -184,6 +184,9 @@ const RETEST_STAGES = [
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Unified-diff parser with real old/new line numbers (no extra dependency).
+   Note: meta detection uses the `--- `/`+++ ` prefix heuristic, which assumes
+   diff content lines always carry a leading diff marker — true for output of
+   difflib.unified_diff, which is the only producer of these strings.
    ═══════════════════════════════════════════════════════════════════════════ */
 type DiffLine = {
   type: "add" | "del" | "hunk" | "context" | "meta";
@@ -304,6 +307,14 @@ function EvidenceBlock({
 
 /* ─── Approval confirmation dialog ──────────────────────────────────────── */
 function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -326,6 +337,7 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
           <button
             type="button"
             onClick={onCancel}
+            autoFocus
             className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] px-4 py-2 text-[var(--text-sm)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40"
           >
             Cancel
@@ -375,20 +387,26 @@ export default function HardeningPage() {
   const promptStats = diffStats(PROMPT_DIFF);
   const policyStats = diffStats(POLICY_DIFF);
 
-  const TABS: { id: ChangeTab; label: string; icon: React.ReactNode; file: string; stats?: string }[] = [
+  const TABS: {
+    id: ChangeTab;
+    label: string;
+    icon: React.ReactNode;
+    file: string;
+    stats?: { added: number; removed: number };
+  }[] = [
     {
       id: "prompt",
       label: "Prompt Diff",
       icon: <FileDiff className="h-3.5 w-3.5" />,
       file: "system-prompt.txt",
-      stats: `+${promptStats.added} −${promptStats.removed}`,
+      stats: promptStats,
     },
     {
       id: "policy",
       label: "Policy Diff",
       icon: <FileCode2 className="h-3.5 w-3.5" />,
       file: "vulnerable-policy.json",
-      stats: `+${policyStats.added} −${policyStats.removed}`,
+      stats: policyStats,
     },
     {
       id: "regression",
@@ -397,6 +415,7 @@ export default function HardeningPage() {
       file: "test_a10_refund_requires_verification.py",
     },
   ];
+  const activeTabMeta = TABS.find((t) => t.id === activeTab);
 
   return (
     <div className="flex flex-col">
@@ -406,7 +425,9 @@ export default function HardeningPage() {
           { label: scanId, href: `/scans/${scanId}` },
           { label: "Hardening" },
         ]}
-        scanStatus={decision === "approved" ? "retesting" : "awaiting_approval"}
+        scanStatus={
+          retestComplete ? "completed" : decision === "approved" ? "retesting" : "awaiting_approval"
+        }
       />
 
       <main className="flex-1 px-6 py-6">
@@ -451,13 +472,13 @@ export default function HardeningPage() {
 
         {/* Decision banners */}
         {decision === "rejected" && (
-          <div className="mb-4 flex items-center gap-3 rounded-[var(--radius-card)] border border-zinc-800 bg-[var(--bg-surface)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          <div className="mb-4 flex items-center gap-3 rounded-[var(--radius-card)] border border-zinc-800 bg-[var(--bg-surface)] px-4 py-3 text-[var(--text-sm)] text-[var(--text-secondary)]">
             <Ban className="h-4 w-4 text-zinc-500" />
             Proposal rejected — no changes applied. Findings remain open for manual review.
           </div>
         )}
         {decision === "revision_requested" && (
-          <div className="mb-4 flex items-center gap-3 rounded-[var(--radius-card)] border border-amber-900/40 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+          <div className="mb-4 flex items-center gap-3 rounded-[var(--radius-card)] border border-amber-900/40 bg-amber-950/20 px-4 py-3 text-[var(--text-sm)] text-amber-300">
             <RotateCcw className="h-4 w-4 text-amber-400" />
             Revision requested — the hardener will redraft the proposal. The current diff stays visible until a new one is proposed.
           </div>
@@ -503,18 +524,21 @@ export default function HardeningPage() {
             {/* ── Proposed changes: [Prompt Diff] [Policy Diff] [Regression] ── */}
             <SpotlightCard className="rounded-[var(--radius-card)]">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-hairline)] px-4 py-2.5">
-                <div className="flex gap-2">
+                <div className="flex gap-2" role="tablist" aria-label="Proposed changes">
                   {TABS.map((tab) => (
                     <button
                       key={tab.id}
                       type="button"
+                      role="tab"
+                      id={`tab-${tab.id}`}
+                      aria-selected={activeTab === tab.id}
+                      aria-controls={`panel-${tab.id}`}
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center gap-1.5 rounded-[var(--radius-input)] px-3 py-1.5 text-[var(--text-xs)] font-medium transition ${
                         activeTab === tab.id
                           ? "border border-[var(--accent)]/50 bg-[var(--accent-glow)] text-[var(--accent)]"
                           : "border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-raised)]"
                       }`}
-                      aria-pressed={activeTab === tab.id}
                     >
                       {tab.icon}
                       {tab.label}
@@ -522,30 +546,32 @@ export default function HardeningPage() {
                   ))}
                 </div>
                 <div className="flex items-center gap-3 font-mono text-[10px]">
-                  {TABS.find((t) => t.id === activeTab)?.stats && (
+                  {activeTabMeta?.stats && (
                     <>
-                      <span className="text-green-400">{TABS.find((t) => t.id === activeTab)!.stats!.split(" ")[0]} added</span>
-                      <span className="text-red-400">{TABS.find((t) => t.id === activeTab)!.stats!.split(" ")[1]} removed</span>
+                      <span className="text-green-400">+{activeTabMeta.stats.added} added</span>
+                      <span className="text-red-400">−{activeTabMeta.stats.removed} removed</span>
                     </>
                   )}
-                  <span className="text-[var(--text-muted)]">{TABS.find((t) => t.id === activeTab)?.file}</span>
+                  <span className="text-[var(--text-muted)]">{activeTabMeta?.file}</span>
                 </div>
               </div>
 
-              {activeTab === "prompt" && <DiffTable diffText={PROMPT_DIFF} />}
-              {activeTab === "policy" && <DiffTable diffText={POLICY_DIFF} />}
-              {activeTab === "regression" && (
-                <div className="p-4">
-                  <p className="mb-3 text-[var(--text-xs)] text-[var(--text-secondary)]">
-                    Level 3 output: a developer regression test. Apply the prompt or policy
-                    change manually in your repository, then keep this test in CI so the
-                    vulnerability cannot silently return.
-                  </p>
-                  <div className="overflow-x-auto rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)]">
-                    <pre className="p-3 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">{REGRESSION_TEST}</pre>
+              <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
+                {activeTab === "prompt" && <DiffTable diffText={PROMPT_DIFF} />}
+                {activeTab === "policy" && <DiffTable diffText={POLICY_DIFF} />}
+                {activeTab === "regression" && (
+                  <div className="p-4">
+                    <p className="mb-3 text-[var(--text-xs)] text-[var(--text-secondary)]">
+                      Level 3 output: a developer regression test. Apply the prompt or policy
+                      change manually in your repository, then keep this test in CI so the
+                      vulnerability cannot silently return.
+                    </p>
+                    <div className="overflow-x-auto rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)]">
+                      <pre className="p-3 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">{REGRESSION_TEST}</pre>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </SpotlightCard>
 
             {/* ── Expected impact ──────────────────────────────────────── */}
@@ -586,7 +612,7 @@ export default function HardeningPage() {
                 </div>
               </div>
               <p className="mt-3 font-mono text-[10px] text-[var(--text-muted)]">
-                Verified by retest: security suite (12 attack cases) + benign utility suite (10 cases).
+                Will be verified by retest: security suite (12 attack cases) + benign utility suite (10 cases).
               </p>
             </SpotlightCard>
 
@@ -667,17 +693,19 @@ export default function HardeningPage() {
               </div>
             )}
 
-            {/* Findings addressed */}
+            {/* Findings addressed — one per defense layer */}
             <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4">
               <p className="mb-2 text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)]">
                 Addresses
               </p>
               <ul className="space-y-1.5 font-mono text-[11px]">
                 <li className="flex items-center gap-2 text-[var(--text-secondary)]">
-                  <XCircle className="h-3 w-3 text-red-400" /> F-001 · direct injection
+                  <XCircle className="h-3 w-3 flex-shrink-0 text-red-400" />
+                  <span>F-001 · direct injection <span className="text-[var(--text-muted)]">→ prompt layer</span></span>
                 </li>
                 <li className="flex items-center gap-2 text-[var(--text-secondary)]">
-                  <XCircle className="h-3 w-3 text-red-400" /> F-002 · unsafe tool call
+                  <XCircle className="h-3 w-3 flex-shrink-0 text-red-400" />
+                  <span>F-002 · unsafe tool call <span className="text-[var(--text-muted)]">→ policy layer</span></span>
                 </li>
               </ul>
             </div>
