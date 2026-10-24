@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 from app.domain.entities import AttackCase
-from app.domain.enums import AttackCategory, Severity
+from app.domain.enums import AttackCategory
 from app.domain.errors import RavenError
 
 
@@ -22,8 +22,8 @@ def catalog_dir() -> Path:
     override = os.environ.get("RAVEN_CATALOG_DIR")
     if override:
         return Path(override)
-    # evaluator/attacks/planner.py -> evaluator(pkg) -> evaluator(project) -> workers -> RAVEN
-    return Path(__file__).resolve().parents[3] / "packages" / "attack-catalog"
+    # planner.py -> attacks -> evaluator(pkg) -> evaluator(project) -> workers -> RAVEN root
+    return Path(__file__).resolve().parents[4] / "packages" / "attack-catalog"
 
 
 def load_attack_cases(categories: list[str] | None = None, limit: int | None = None) -> list[AttackCase]:
@@ -58,3 +58,6 @@ class AttackPlanner:
 
     def select(self, categories: list[str], max_cases: int) -> list[AttackCase]:
         return load_attack_cases(categories or None, limit=max_cases)
+
+    def load_benign_cases(self, limit: int | None = None) -> list:
+        return load_benign_cases(limit)

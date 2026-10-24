@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from app.domain.entities import (
@@ -18,13 +18,13 @@ from app.domain.entities import (
     Finding,
     HardeningProposal,
     PolicyCandidate,
+    RuleResult,
     Scan,
     ScanConfig,
     ScanEvent,
     TargetProfile,
     TestRun,
     Transcript,
-    TranscriptMessage,
     Verdict,
     utc_now,
 )

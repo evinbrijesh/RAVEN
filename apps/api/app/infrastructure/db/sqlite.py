@@ -9,25 +9,26 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from threading import Lock
+from threading import RLock
 from typing import Any
 
 SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 class Database:
-    """Small synchronous SQLite wrapper with per-thread connections."""
+    """SQLite wrapper with ONE shared connection guarded by an RLock.
+
+    A single connection eliminates SQLite file-lock contention between the
+    API and worker threads (both processes open their own Database instance
+    on the same file; WAL mode keeps cross-process access safe).
+    """
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self._lock = Lock()
+        self._lock = RLock()
         if self.path != Path(":memory:"):
             self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._shared: sqlite3.Connection | None = None
-        if self.path == Path(":memory:"):
-            # :memory: databases are per-connection; keep one shared connection
-            # so tests can use an in-memory database safely.
-            self._shared = self._new_connection()
+        self._shared: sqlite3.Connection = self._new_connection()
 
     def _new_connection(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path, check_same_thread=False)
@@ -38,9 +39,7 @@ class Database:
 
     def connect(self) -> sqlite3.Connection:
         with self._lock:
-            if self._shared is not None:
-                return self._shared
-            return self._new_connection()
+            return self._shared
 
     def migrate(self) -> None:
         """Apply the canonical schema (idempotent, CREATE IF NOT EXISTS)."""

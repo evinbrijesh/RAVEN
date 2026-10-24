@@ -7,16 +7,22 @@ never deploys to an external system (safety rule 5).
 from __future__ import annotations
 
 import uuid
+from typing import Protocol
 
-from app.domain.entities import Approval, HardeningProposal, utc_now
+from app.domain.entities import Approval, HardeningProposal, ScanEvent, utc_now
 from app.domain.enums import EventKind, ScanStatus
 from app.domain.errors import NotFoundError, ValidationFailed
 from app.infrastructure.db.repository import Repositories
 
 
+class JobQueueLike(Protocol):
+    def enqueue(self, kind: str, payload: dict[str, object]) -> str: ...
+
+
 class ApproveHardening:
-    def __init__(self, repos: Repositories) -> None:
+    def __init__(self, repos: Repositories, queue: JobQueueLike | None = None) -> None:
         self._repos = repos
+        self._queue = queue
 
     def execute(
         self, scan_id: str, proposal_id: str, approved: bool, approved_by: str
@@ -56,6 +62,10 @@ class ApproveHardening:
             ScanStatus.RETESTING if approved else ScanStatus.COMPLETED_WITHOUT_RETEST
         )
         self._repos.scans.update_status(scan_id, next_status)
+        if approved and self._queue is not None:
+            # Queue the retest; the worker applies hardening to the temporary
+            # target only (safety rule 5).
+            self._queue.enqueue("run_retest", {"scan_id": scan_id})
         return approval
 
 

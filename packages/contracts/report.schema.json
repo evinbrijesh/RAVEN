@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raven/report/0.1",
+  "title": "RavenReport",
+  "type": "object",
+  "required": ["schema_version", "scan_id", "target", "findings", "generated_at"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "scan_id": { "type": "string" },
+    "status": { "type": "string" },
+    "target": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "attack_cases": { "type": ["integer", "null"] },
+        "categories": { "type": ["integer", "null"] }
+      }
+    },
+    "findings": { "type": "array", "items": { "$ref": "finding.schema.json" } },
+    "hardening": {
+      "type": "object",
+      "properties": {
+        "proposal": { "type": ["object", "null"] },
+        "approved": { "type": ["boolean", "null"] }
+      }
+    },
+    "before_after": {
+      "type": "object",
+      "properties": {
+        "before_attack_success_rate": { "type": ["number", "null"] },
+        "after_attack_success_rate": { "type": ["number", "null"] }
+      }
+    },
+    "benign_regression": {
+      "type": "object",
+      "properties": {
+        "benign_success_rate": { "type": ["number", "null"] },
+        "cases": { "type": "integer" }
+      }
+    },
+    "limitations": { "type": "array", "items": { "type": "string" } },
+    "generated_at": { "type": "string", "format": "date-time" }
+  }
+}

@@ -31,7 +31,7 @@ class SqliteJobQueue:
         """Atomically claim the oldest queued job (optionally filtered by kind)."""
         placeholders = ",".join("?" for _ in kinds) if kinds else None
         sql = (
-            f"SELECT * FROM jobs WHERE status = 'queued'"
+            "SELECT * FROM jobs WHERE status = 'queued'"
             + (f" AND kind IN ({placeholders})" if placeholders else "")
             + " ORDER BY created_at LIMIT 1"
         )

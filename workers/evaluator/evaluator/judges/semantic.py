@@ -20,8 +20,8 @@ from app.domain.entities import (
     Transcript,
 )
 from app.domain.enums import FindingLabel, JudgeRole
-from app.domain.errors import ModelSchemaViolation, ModelUnavailable
-from app.domain.value_objects import Budget
+from app.domain.errors import BudgetExceeded, ModelSchemaViolation, ModelUnavailable
+
 from evaluator.orchestration.budgets import BudgetTracker
 
 PROMPT_VERSION = "semantic-judge-v1"
@@ -59,8 +59,7 @@ def _extract_json(text: str) -> dict[str, Any]:
     text = text.strip()
     if text.startswith("```"):
         text = text.strip("`")
-        if text.startswith("json"):
-            text = text[4:]
+        text = text.removeprefix("json")
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1:
@@ -116,7 +115,7 @@ class SemanticJudge:
             )
             try:
                 self._budget.consume_model_call()
-            except Exception:
+            except BudgetExceeded:
                 record.status = "skipped"
                 self.calls.append(record)
                 return None  # budget exhausted: deterministic-only

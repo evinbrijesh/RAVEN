@@ -6,15 +6,19 @@ from pydantic import BaseModel, Field
 
 
 class Budget(BaseModel):
-    """Hard runtime budgets. Enforced in code, not only in documentation."""
+    """Hard runtime budgets. Enforced in code, not only in documentation.
 
-    max_attack_cases: int = Field(default=12, ge=1, le=12)
-    max_attempts_per_attack: int = Field(default=2, ge=1, le=2)
+    Upper caps are NOT embedded here (so over-cap requests can be clamped by
+    app.security.limits); the security module rejects/clamps them.
+    """
+
+    max_attack_cases: int = Field(default=12, ge=1)
+    max_attempts_per_attack: int = Field(default=2, ge=1)
     max_model_calls: int = Field(default=40, ge=0)
     max_total_tokens: int = Field(default=200_000, ge=0)
     per_call_timeout_seconds: float = Field(default=30.0, gt=0)
     scan_timeout_seconds: float = Field(default=600.0, gt=0)
-    concurrency_limit: int = Field(default=2, ge=1, le=8)
+    concurrency_limit: int = Field(default=2, ge=1)
 
 
 class EvidenceRef(BaseModel):

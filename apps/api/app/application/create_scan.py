@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Protocol
 
-from app.domain.entities import Scan, ScanConfig, ScanEvent, utc_now
+from app.domain.entities import Scan, ScanConfig, ScanEvent
 from app.domain.enums import EventKind
 from app.domain.value_objects import TargetRef
 from app.infrastructure.db.repository import Repositories

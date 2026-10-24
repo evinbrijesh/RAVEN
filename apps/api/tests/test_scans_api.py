@@ -67,10 +67,37 @@ def test_get_scan_after_create(client: TestClient, valid_scan_payload: dict) -> 
     assert body["counts"]["total"] == 0
 
 
-def test_approve_hardening_requires_awaiting_approval(
+def test_approve_unknown_proposal_404(
     client: TestClient, valid_scan_payload: dict
 ) -> None:
     scan_id = client.post("/api/scans", json=valid_scan_payload).json()["scan_id"]
+    response = client.post(
+        f"/api/scans/{scan_id}/approve-hardening",
+        json={"proposal_id": "fix_missing", "approved": True, "approved_by": "demo-user"},
+    )
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "NOT_FOUND"
+
+
+def test_approve_requires_awaiting_approval_status(
+    client: TestClient, valid_scan_payload: dict
+) -> None:
+    scan_id = client.post("/api/scans", json=valid_scan_payload).json()["scan_id"]
+    # Seed a real proposal directly (worker engine normally creates it).
+    from datetime import UTC, datetime
+
+    from app.domain.entities import HardeningProposal
+
+    repos = client.app.state.repos
+    repos.proposals.save(
+        HardeningProposal(
+            proposal_id="fix_1",
+            scan_id=scan_id,
+            prompt_diff="--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new",
+            rationale="test",
+            created_at=datetime.now(UTC),
+        )
+    )
     response = client.post(
         f"/api/scans/{scan_id}/approve-hardening",
         json={"proposal_id": "fix_1", "approved": True, "approved_by": "demo-user"},

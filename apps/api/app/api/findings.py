@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.dependencies import get_repositories
 from app.domain.entities import Finding
-from app.domain.errors import NotFoundError, RavenError
+from app.domain.errors import NotFoundError
 from app.infrastructure.db.repository import Repositories
 
 router = APIRouter(prefix="/api/scans", tags=["findings"])

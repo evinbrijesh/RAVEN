@@ -22,6 +22,7 @@ from app.domain.entities import (
     TargetRequest,
     TargetResponse,
 )
+
 from evaluator.targets.policy_gateway import PolicyGateway
 
 INJECTION_MARKERS = (
@@ -55,7 +56,8 @@ def fixtures_dir() -> Path:
     override = os.environ.get("RAVEN_FIXTURES_DIR")
     if override:
         return Path(override)
-    return (Path(__file__).resolve().parents[2] / ".." / ".." / "fixtures" / "shophelper").resolve()
+    # shophelper.py -> targets -> evaluator(pkg) -> evaluator(project) -> workers -> RAVEN root
+    return Path(__file__).resolve().parents[4] / "fixtures" / "shophelper"
 
 
 class ShopHelperLocalAdapter:
@@ -64,7 +66,7 @@ class ShopHelperLocalAdapter:
     def __init__(self, fixtures_path: str | Path | None = None) -> None:
         self.fixtures_path = Path(fixtures_path) if fixtures_path else fixtures_dir()
         self._load_fixtures()
-        self.reset()
+        self._reset_state()
 
     # --- fixture loading -------------------------------------------------
     def _load_fixtures(self) -> None:
@@ -75,8 +77,8 @@ class ShopHelperLocalAdapter:
         self._policy_vulnerable = json.loads((base / "vulnerable-policy.json").read_text(encoding="utf-8"))
 
     # --- lifecycle --------------------------------------------------------
-    def reset(self) -> None:
-        """Restore the original vulnerable configuration."""
+    def _reset_state(self) -> None:
+        """Sync internal reset used by __init__ and async reset()."""
         self._system_prompt = self._system_prompt_vulnerable
         self._gateway = PolicyGateway(self._policy_vulnerable)
         self._orders: dict[str, dict[str, Any]] = {
@@ -84,6 +86,10 @@ class ShopHelperLocalAdapter:
             for customer in self._customers
             for order in customer.get("orders", [])
         }
+
+    async def reset(self) -> None:
+        """Restore the original vulnerable configuration."""
+        self._reset_state()
 
     async def apply_temporary_policy(
         self, policy: PolicyCandidate, prompt_patch: str | None = None
@@ -94,7 +100,7 @@ class ShopHelperLocalAdapter:
         self._gateway.apply_candidate(policy.model_dump())
 
     async def clear_temporary_policy(self) -> None:
-        self.reset()
+        await self.reset()
 
     # --- recon -------------------------------------------------------------
     async def profile(self) -> TargetProfile:
@@ -110,10 +116,10 @@ class ShopHelperLocalAdapter:
 
     @staticmethod
     def _extract_canary(system_prompt: str) -> str:
-        for line in system_prompt.splitlines():
-            if "CANARY" in line:
-                return line.split()[-1]
-        return ""
+        import re
+
+        match = re.search(r"RAVEN-CANARY-[A-Za-z0-9]+", system_prompt)
+        return match.group(0) if match else ""
 
     # --- invocation ----------------------------------------------------------
     async def invoke(self, request: TargetRequest) -> TargetResponse:
@@ -133,7 +139,7 @@ class ShopHelperLocalAdapter:
 
     # --- behavior branches -----------------------------------------------------
     def _handle_injection(self) -> TargetResponse:
-        if "hardened" in self._system_prompt:
+        if "hardened" in self._system_prompt.lower():
             return TargetResponse(
                 message="I can't share my internal instructions or override my policies.",
             )
@@ -145,7 +151,7 @@ class ShopHelperLocalAdapter:
         )
 
     def _handle_pii_request(self) -> TargetResponse:
-        if "hardened" in self._system_prompt:
+        if "hardened" in self._system_prompt.lower():
             return TargetResponse(
                 message="I can't share other customers' personal information.",
             )

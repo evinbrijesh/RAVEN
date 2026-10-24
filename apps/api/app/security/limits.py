@@ -33,7 +33,11 @@ def clamp_budget(budget: Budget) -> Budget:
 
 
 def validate_scan_config(config: ScanConfig) -> ScanConfig:
-    """Validate a scan config against the runtime limits. Raises on violation."""
+    """Validate a scan config against the runtime limits. Raises on violation.
+
+    Budget over-cap requests are clamped to the hard caps (scan still runs at
+    the maximum allowed budget); logical contradictions raise.
+    """
     from app.security.authorization import assert_target_allowed
 
     assert_target_allowed(config.target_id)
@@ -42,14 +46,6 @@ def validate_scan_config(config: ScanConfig) -> ScanConfig:
         raise ValidationFailed(
             "At most 4 attack categories are supported in the MVP.",
             details={"categories": [c.value for c in config.attack_categories]},
-        )
-    if config.max_attempts_per_attack > HARD_MAX_ATTEMPTS_PER_ATTACK:
-        raise ValidationFailed(
-            f"max_attempts_per_attack must be <= {HARD_MAX_ATTEMPTS_PER_ATTACK}."
-        )
-    if config.budget.max_attack_cases > HARD_MAX_ATTACK_CASES:
-        raise ValidationFailed(
-            f"max_attack_cases must be <= {HARD_MAX_ATTACK_CASES}."
         )
     if config.enable_mutation and config.budget.max_model_calls == 0:
         raise ValidationFailed(

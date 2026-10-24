@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
-from typing import AsyncIterator, Protocol
+from collections.abc import AsyncIterator
+from typing import Protocol
 
 from app.domain.entities import ScanEvent
 

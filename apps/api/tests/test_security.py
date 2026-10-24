@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from app.security.limits import clamp_budget, validate_scan_config
 from app.domain.entities import ScanConfig
 from app.domain.errors import TargetNotAllowed, ValidationFailed
 from app.domain.value_objects import Budget
+from app.security.limits import clamp_budget, validate_scan_config
 from app.security.redaction import redact, redact_mapping
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.domain.entities import utc_now
-from app.domain.enums import FindingLabel, TestRunKind
+from app.domain.enums import TestRunKind
 from app.domain.errors import NotFoundError
 from app.infrastructure.db.repository import Repositories
 

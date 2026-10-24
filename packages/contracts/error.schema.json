@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raven/error/0.1",
+  "title": "ApiError",
+  "type": "object",
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "enum": [
+        "RAVEN_ERROR", "NOT_FOUND", "VALIDATION_FAILED", "TARGET_NOT_ALLOWED",
+        "BUDGET_EXCEEDED", "INVALID_TRANSITION", "MODEL_UNAVAILABLE",
+        "MODEL_SCHEMA_VIOLATION", "APPROVAL_REQUIRED", "UNSAFE_OPERATION"
+      ]
+    },
+    "message": { "type": "string" },
+    "retryable": { "type": "boolean" },
+    "details": { "type": "object" }
+  }
+}

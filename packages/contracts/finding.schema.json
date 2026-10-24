@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raven/finding/0.1",
+  "title": "Finding",
+  "type": "object",
+  "required": ["finding_id", "attack_id", "category", "severity", "label", "summary"],
+  "properties": {
+    "finding_id": { "type": "string" },
+    "scan_id": { "type": "string" },
+    "attack_id": { "type": "string", "pattern": "^A-[0-9]{2}$" },
+    "category": {
+      "enum": ["direct_injection", "canary_leakage", "sensitive_data", "tool_misuse"]
+    },
+    "severity": { "enum": ["low", "medium", "high", "critical"] },
+    "label": {
+      "enum": [
+        "confirmed_failure", "likely_failure", "attack_blocked", "needs_review",
+        "partial_mitigation", "regression_detected", "not_evaluated",
+        "verified_under_stated_checks"
+      ]
+    },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "summary": { "type": "string" },
+    "evidence_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ref_id", "kind"],
+        "properties": {
+          "ref_id": { "type": "string" },
+          "kind": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "needs_review": { "type": "boolean" },
+    "status": { "enum": ["open", "mitigated", "reopened"] }
+  }
+}

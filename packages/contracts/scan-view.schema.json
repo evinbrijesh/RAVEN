@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raven/scan-view/0.1",
+  "title": "ScanView",
+  "type": "object",
+  "required": ["scan_id", "status", "target_id"],
+  "properties": {
+    "scan_id": { "type": "string", "pattern": "^scan_[a-f0-9]{12}$" },
+    "status": {
+      "enum": [
+        "created", "reconning", "attacking", "judging", "hardening_proposed",
+        "awaiting_approval", "retesting", "completed", "completed_without_retest",
+        "failed_partial", "failed_fatal"
+      ]
+    },
+    "phase": { "type": "string" },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1 },
+    "target_id": { "type": "string" },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "total": { "type": "integer" },
+        "confirmed_failures": { "type": "integer" },
+        "blocked": { "type": "integer" },
+        "needs_review": { "type": "integer" },
+        "not_evaluated": { "type": "integer" }
+      }
+    },
+    "security_metrics": {
+      "type": "object",
+      "properties": {
+        "before_attack_success_rate": { "type": ["number", "null"] },
+        "after_attack_success_rate": { "type": ["number", "null"] },
+        "benign_success_rate": { "type": ["number", "null"] }
+      }
+    }
+  }
+}

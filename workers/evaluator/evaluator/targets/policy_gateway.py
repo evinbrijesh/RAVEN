@@ -99,5 +99,5 @@ class PolicyGateway:
 def load_policy_file(path: str | Path) -> dict[str, Any]:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
-        raise ValueError(f"Policy file must contain an object: {path}")
+        raise TypeError(f"Policy file must contain an object: {path}")
     return data

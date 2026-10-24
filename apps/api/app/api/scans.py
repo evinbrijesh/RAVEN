@@ -8,7 +8,7 @@ from app.application.approve_hardening import ApproveHardening, GetProposal
 from app.application.create_scan import CreateScan
 from app.application.get_scan import GetScan
 from app.dependencies import get_queue, get_repositories
-from app.domain.entities import Approval, HardeningProposal, Scan, ScanConfig, ScanView
+from app.domain.entities import Approval, HardeningProposal, ScanConfig, ScanView
 from app.domain.errors import RavenError
 from app.infrastructure.db.repository import Repositories
 from app.infrastructure.queue.sqlite_queue import SqliteJobQueue
@@ -32,7 +32,10 @@ def create_scan(
     queue: SqliteJobQueue = Depends(get_queue),
 ) -> dict[str, str]:
     """Create a scan and queue it for the evaluation worker (202 Accepted)."""
-    scan = CreateScan(repos, queue).execute(config)
+    try:
+        scan = CreateScan(repos, queue).execute(config)
+    except RavenError as exc:
+        raise _http_error(exc) from exc
     return {"scan_id": scan.scan_id, "status": scan.status.value, "message": "Scan queued"}
 
 
@@ -60,6 +63,7 @@ def approve_hardening(
     scan_id: str,
     body: dict[str, object],
     repos: Repositories = Depends(get_repositories),
+    queue: SqliteJobQueue = Depends(get_queue),
 ) -> Approval:
     """Record a human approval decision; only affects the temporary target."""
     try:
@@ -68,7 +72,7 @@ def approve_hardening(
         approved_by = str(body.get("approved_by", "anonymous"))
         if not proposal_id:
             raise ValueError("proposal_id is required")
-        return ApproveHardening(repos).execute(scan_id, proposal_id, approved, approved_by)
+        return ApproveHardening(repos, queue).execute(scan_id, proposal_id, approved, approved_by)
     except RavenError as exc:
         raise _http_error(exc) from exc
     except ValueError as exc:

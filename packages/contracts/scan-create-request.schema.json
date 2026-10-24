@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "raven/scan-create-request/0.1",
+  "title": "ScanCreateRequest",
+  "type": "object",
+  "required": ["target_id"],
+  "properties": {
+    "target_id": { "const": "shophelper-local" },
+    "attack_categories": {
+      "type": "array",
+      "items": {
+        "enum": ["direct_injection", "canary_leakage", "sensitive_data", "tool_misuse"]
+      },
+      "maxItems": 4
+    },
+    "max_attempts_per_attack": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "enable_mutation": { "type": "boolean" },
+    "run_benign_suite": { "type": "boolean" },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "max_attack_cases": { "type": "integer", "minimum": 1, "maximum": 12 },
+        "max_attempts_per_attack": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "max_model_calls": { "type": "integer", "minimum": 0 },
+        "max_total_tokens": { "type": "integer", "minimum": 0 },
+        "per_call_timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "scan_timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "concurrency_limit": { "type": "integer", "minimum": 1, "maximum": 8 }
+      }
+    }
+  }
+}

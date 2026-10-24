@@ -16,8 +16,6 @@ from app.domain.enums import (
     AttackCategory,
     EventKind,
     FindingLabel,
-    RunPhase,
-    RunStatus,
     ScanStatus,
     Severity,
     TestRunKind,
