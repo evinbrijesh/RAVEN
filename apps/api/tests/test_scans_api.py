@@ -109,3 +109,14 @@ def test_approve_requires_awaiting_approval_status(
 def test_report_requires_existing_scan(client: TestClient) -> None:
     response = client.get("/api/scans/scan_missing/report")
     assert response.status_code == 404
+
+
+def test_report_sarif_export(client: TestClient, valid_scan_payload: dict) -> None:
+    scan_id = client.post("/api/scans", json=valid_scan_payload).json()["scan_id"]
+    response = client.get(f"/api/scans/{scan_id}/report?format=sarif")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["version"] == "2.1.0"
+    assert len(body["runs"]) == 1
+    assert body["runs"][0]["tool"]["driver"]["name"] == "RAVEN"
+

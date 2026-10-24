@@ -3,20 +3,43 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
+from typing import Any
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILE = REPO_ROOT / ".env" if (REPO_ROOT / ".env").exists() else ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="RAVEN_", env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="RAVEN_",
+        env_file=str(ENV_FILE),
+        extra="ignore",
+    )
 
     env: str = "development"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     database_url: str = "sqlite:///./data/raven.db"
     redis_url: str = ""
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] | str = ["http://localhost:3000"]
     evidence_dir: str = "./data/evidence"
+
+    @field_validator("cors_origins", mode="after")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                import json
+
+                return json.loads(v)
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
 
     # Model plane
     model_provider: str = "none"

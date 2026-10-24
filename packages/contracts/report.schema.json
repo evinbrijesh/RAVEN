@@ -1,51 +1,579 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "raven/report/0.1",
+  "$id": "raven/report/1.0",
   "title": "RavenReport",
+  "description": "Canonical RAVEN report artifact. JSON is canonical; Markdown and SARIF are projections.",
   "type": "object",
-  "required": ["schema_version", "scan_id", "target", "findings", "generated_at"],
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "report_id",
+    "generated_at",
+    "generator",
+    "scan",
+    "summary",
+    "coverage",
+    "findings",
+    "hardening",
+    "before_after",
+    "evidence",
+    "model_usage",
+    "tool_versions",
+    "redaction",
+    "limitations",
+    "integrity"
+  ],
   "properties": {
-    "schema_version": { "const": "0.1" },
-    "scan_id": { "type": "string" },
-    "status": { "type": "string" },
-    "target": {
+    "schema_version": { "const": "1.0" },
+    "report_id": { "type": "string", "pattern": "^rpt_[A-Za-z0-9]+$" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "generator": {
       "type": "object",
-      "required": ["id"],
+      "additionalProperties": false,
+      "required": ["name", "version"],
       "properties": {
-        "id": { "type": "string" },
-        "version": { "type": "string" }
+        "name": { "const": "raven" },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "scan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scan_id", "status", "created_at", "completed_at", "target", "config", "profile"],
+      "properties": {
+        "scan_id": { "type": "string", "minLength": 1 },
+        "status": { "$ref": "#/$defs/scanStatus" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "completed_at": { "type": ["string", "null"], "format": "date-time" },
+        "target": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "version": { "type": "string" }
+          }
+        },
+        "config": { "$ref": "#/$defs/scanConfig" },
+        "profile": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["tools", "canary_present", "system_prompt_hash", "notes"],
+              "properties": {
+                "tools": { "type": "array", "items": { "type": "string" } },
+                "canary_present": { "type": "boolean" },
+                "system_prompt_hash": { "type": "string" },
+                "notes": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verdict", "headline", "counts", "judge"],
+      "properties": {
+        "verdict": { "$ref": "#/$defs/reportVerdict" },
+        "headline": { "type": "string", "minLength": 1 },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "attack_cases",
+            "evaluated",
+            "not_evaluated",
+            "confirmed_failure",
+            "likely_failure",
+            "attack_blocked",
+            "needs_review",
+            "benign_cases",
+            "benign_passed",
+            "regressions"
+          ],
+          "properties": {
+            "attack_cases": { "type": "integer", "minimum": 0 },
+            "evaluated": { "type": "integer", "minimum": 0 },
+            "not_evaluated": { "type": "integer", "minimum": 0 },
+            "confirmed_failure": { "type": "integer", "minimum": 0 },
+            "likely_failure": { "type": "integer", "minimum": 0 },
+            "attack_blocked": { "type": "integer", "minimum": 0 },
+            "needs_review": { "type": "integer", "minimum": 0 },
+            "benign_cases": { "type": "integer", "minimum": 0 },
+            "benign_passed": { "type": "integer", "minimum": 0 },
+            "regressions": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "judge": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "deterministic_available",
+            "semantic_available",
+            "disagreements",
+            "model_name",
+            "prompt_version"
+          ],
+          "properties": {
+            "deterministic_available": { "type": "boolean" },
+            "semantic_available": { "type": "boolean" },
+            "disagreements": { "type": "integer", "minimum": 0 },
+            "model_name": { "type": ["string", "null"] },
+            "prompt_version": { "type": ["string", "null"] }
+          }
+        }
       }
     },
     "coverage": {
       "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "attack_cases",
+        "categories",
+        "benign_cases",
+        "attack_catalog_version",
+        "benign_catalog_version"
+      ],
       "properties": {
-        "attack_cases": { "type": ["integer", "null"] },
-        "categories": { "type": ["integer", "null"] }
+        "attack_cases": { "type": "integer", "minimum": 0 },
+        "categories": { "type": "array", "items": { "$ref": "#/$defs/attackCategory" } },
+        "benign_cases": { "type": "integer", "minimum": 0 },
+        "attack_catalog_version": { "type": "string" },
+        "benign_catalog_version": { "type": "string" }
       }
     },
-    "findings": { "type": "array", "items": { "$ref": "finding.schema.json" } },
+    "findings": { "type": "array", "items": { "$ref": "#/$defs/reportFinding" } },
     "hardening": {
       "type": "object",
+      "additionalProperties": false,
+      "required": ["proposal", "approval", "applied_to"],
       "properties": {
-        "proposal": { "type": ["object", "null"] },
-        "approved": { "type": ["boolean", "null"] }
+        "proposal": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "proposal_id",
+                "scan_id",
+                "prompt_diff",
+                "policy_candidate",
+                "rationale",
+                "affected_cases",
+                "risks",
+                "created_at"
+              ],
+              "properties": {
+                "proposal_id": { "type": "string" },
+                "scan_id": { "type": "string" },
+                "prompt_diff": { "type": "string" },
+                "policy_candidate": {
+                  "oneOf": [
+                    { "type": "null" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["tool", "conditions", "high_value_action", "on_violation"],
+                      "properties": {
+                        "tool": { "type": "string" },
+                        "conditions": { "type": "array", "items": { "type": "string" } },
+                        "high_value_action": { "type": "string" },
+                        "on_violation": { "type": "string" }
+                      }
+                    }
+                  ]
+                },
+                "rationale": { "type": "string" },
+                "affected_cases": { "type": "array", "items": { "type": "string" } },
+                "risks": { "type": "array", "items": { "type": "string" } },
+                "created_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        },
+        "approval": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["approved", "approved_by", "created_at"],
+              "properties": {
+                "approved": { "type": "boolean" },
+                "approved_by": { "type": "string" },
+                "created_at": { "type": "string", "format": "date-time" }
+              }
+            }
+          ]
+        },
+        "applied_to": { "enum": ["temporary_target", "not_applied"] }
       }
     },
     "before_after": {
       "type": "object",
+      "additionalProperties": false,
+      "required": ["security", "utility"],
       "properties": {
-        "before_attack_success_rate": { "type": ["number", "null"] },
-        "after_attack_success_rate": { "type": ["number", "null"] }
+        "security": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "before_attack_success_rate",
+            "after_attack_success_rate",
+            "delta",
+            "before_blocked_rate",
+            "after_blocked_rate",
+            "per_category"
+          ],
+          "properties": {
+            "before_attack_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "after_attack_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "delta": { "type": ["number", "null"], "minimum": -1, "maximum": 1 },
+            "before_blocked_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "after_blocked_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "per_category": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["category", "before_success_rate", "after_success_rate", "delta"],
+                "properties": {
+                  "category": { "$ref": "#/$defs/attackCategory" },
+                  "before_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+                  "after_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+                  "delta": { "type": ["number", "null"], "minimum": -1, "maximum": 1 }
+                }
+              }
+            }
+          }
+        },
+        "utility": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "before_benign_success_rate",
+            "after_benign_success_rate",
+            "delta",
+            "cases",
+            "over_refusal_case_ids"
+          ],
+          "properties": {
+            "before_benign_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "after_benign_success_rate": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "delta": { "type": ["number", "null"], "minimum": -1, "maximum": 1 },
+            "cases": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "case_id",
+                  "goal",
+                  "prompt_redacted",
+                  "expected",
+                  "passed_before",
+                  "passed_after",
+                  "over_refusal"
+                ],
+                "properties": {
+                  "case_id": { "type": "string" },
+                  "goal": { "type": "string" },
+                  "prompt_redacted": { "type": "string" },
+                  "expected": { "type": "string" },
+                  "passed_before": { "type": ["boolean", "null"] },
+                  "passed_after": { "type": ["boolean", "null"] },
+                  "over_refusal": { "type": "boolean" }
+                }
+              }
+            },
+            "over_refusal_case_ids": { "type": "array", "items": { "type": "string" } }
+          }
+        }
       }
     },
-    "benign_regression": {
+    "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+    "model_usage": {
       "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "semantic_judge_available",
+        "model_name",
+        "prompt_version",
+        "calls",
+        "input_tokens",
+        "output_tokens",
+        "duration_ms"
+      ],
       "properties": {
-        "benign_success_rate": { "type": ["number", "null"] },
-        "cases": { "type": "integer" }
+        "semantic_judge_available": { "type": "boolean" },
+        "model_name": { "type": ["string", "null"] },
+        "prompt_version": { "type": ["string", "null"] },
+        "calls": { "type": "integer", "minimum": 0 },
+        "input_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 }
       }
     },
-    "limitations": { "type": "array", "items": { "type": "string" } },
-    "generated_at": { "type": "string", "format": "date-time" }
+    "tool_versions": {
+      "type": "object",
+      "required": ["raven", "target"],
+      "additionalProperties": { "type": "string" }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applied", "transcript_excerpt_chars", "redacted_fields"],
+      "properties": {
+        "applied": { "type": "boolean" },
+        "transcript_excerpt_chars": { "type": "integer", "minimum": 0 },
+        "redacted_fields": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_sha256", "source"],
+      "properties": {
+        "content_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "source": { "const": "persisted_evidence_only" }
+      }
+    }
+  },
+  "$defs": {
+    "reportVerdict": {
+      "enum": ["improved", "confirmed_vulnerable", "no_confirmed_findings", "inconclusive", "partial"]
+    },
+    "scanStatus": {
+      "enum": [
+        "created",
+        "reconning",
+        "attacking",
+        "judging",
+        "hardening_proposed",
+        "awaiting_approval",
+        "retesting",
+        "completed",
+        "completed_without_retest",
+        "failed_partial",
+        "failed_fatal"
+      ]
+    },
+    "attackCategory": {
+      "enum": ["direct_injection", "canary_leakage", "sensitive_data", "tool_misuse"]
+    },
+    "severity": { "enum": ["low", "medium", "high", "critical"] },
+    "findingLabel": {
+      "enum": [
+        "confirmed_failure",
+        "likely_failure",
+        "attack_blocked",
+        "needs_review",
+        "partial_mitigation",
+        "regression_detected",
+        "not_evaluated",
+        "verified_under_stated_checks"
+      ]
+    },
+    "verdictResolution": {
+      "enum": [
+        "rule_confirmed",
+        "rule_blocked",
+        "model_confirmed",
+        "model_blocked",
+        "disagreement",
+        "no_evidence",
+        "semantic_unavailable"
+      ]
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_attack_cases",
+        "max_attempts_per_attack",
+        "max_model_calls",
+        "max_total_tokens",
+        "per_call_timeout_seconds",
+        "scan_timeout_seconds",
+        "concurrency_limit"
+      ],
+      "properties": {
+        "max_attack_cases": { "type": "integer", "minimum": 1 },
+        "max_attempts_per_attack": { "type": "integer", "minimum": 1 },
+        "max_model_calls": { "type": "integer", "minimum": 0 },
+        "max_total_tokens": { "type": "integer", "minimum": 0 },
+        "per_call_timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "scan_timeout_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "concurrency_limit": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "scanConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target_id",
+        "attack_categories",
+        "max_attempts_per_attack",
+        "enable_mutation",
+        "run_benign_suite",
+        "budget"
+      ],
+      "properties": {
+        "target_id": { "type": "string" },
+        "attack_categories": { "type": "array", "items": { "$ref": "#/$defs/attackCategory" } },
+        "max_attempts_per_attack": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "enable_mutation": { "type": "boolean" },
+        "run_benign_suite": { "type": "boolean" },
+        "budget": { "$ref": "#/$defs/budget" }
+      }
+    },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "kind"],
+      "properties": {
+        "ref_id": { "type": "string" },
+        "kind": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "transcriptMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": { "type": "string" },
+        "content": { "type": "string" },
+        "tool_name": { "type": ["string", "null"] },
+        "tool_args_json": { "type": ["string", "null"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref_id", "kind", "description"],
+      "properties": {
+        "ref_id": { "type": "string" },
+        "kind": { "enum": ["run", "transcript", "rule_check", "model_call", "approval", "test_run"] },
+        "description": { "type": "string" },
+        "run_id": { "type": "string" },
+        "attempt": { "type": "integer", "minimum": 1 },
+        "phase": { "enum": ["before", "after"] },
+        "transcript": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["transcript_id", "messages", "truncated"],
+          "properties": {
+            "transcript_id": { "type": "string" },
+            "messages": { "type": "array", "items": { "$ref": "#/$defs/transcriptMessage" } },
+            "truncated": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "reportFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "finding_id",
+        "attack_id",
+        "category",
+        "severity",
+        "label",
+        "confidence",
+        "needs_review",
+        "summary",
+        "attack",
+        "deterministic",
+        "semantic",
+        "resolution",
+        "evidence_refs",
+        "run",
+        "evidence_complete"
+      ],
+      "properties": {
+        "finding_id": { "type": "string" },
+        "attack_id": { "type": "string" },
+        "category": { "$ref": "#/$defs/attackCategory" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "label": { "$ref": "#/$defs/findingLabel" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "needs_review": { "type": "boolean" },
+        "summary": { "type": "string" },
+        "attack": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["goal", "success_rule", "seed_prompt_redacted", "references", "version"],
+              "properties": {
+                "goal": { "type": "string" },
+                "success_rule": { "type": "string" },
+                "seed_prompt_redacted": { "type": "string" },
+                "references": { "type": "array", "items": { "type": "string" } },
+                "version": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "deterministic": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["label", "signals"],
+              "properties": {
+                "label": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/findingLabel" }] },
+                "signals": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          ]
+        },
+        "semantic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["label", "confidence", "reason", "model_name", "prompt_version", "available"],
+          "properties": {
+            "label": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/findingLabel" }] },
+            "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "reason": { "type": ["string", "null"] },
+            "model_name": { "type": ["string", "null"] },
+            "prompt_version": { "type": ["string", "null"] },
+            "available": { "type": "boolean" }
+          }
+        },
+        "resolution": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/verdictResolution" }] },
+        "evidence_refs": { "type": "array", "items": { "$ref": "#/$defs/evidenceRef" } },
+        "run": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["run_id", "attempt", "phase", "status"],
+              "properties": {
+                "run_id": { "type": "string" },
+                "attempt": { "type": "integer", "minimum": 1 },
+                "phase": { "enum": ["before", "after"] },
+                "status": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "evidence_complete": { "type": "boolean" }
+      }
+    }
   }
 }

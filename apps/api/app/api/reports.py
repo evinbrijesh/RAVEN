@@ -19,10 +19,10 @@ def get_report(
     format: str = "json",
     repos: Repositories = Depends(get_repositories),
 ):
-    if format not in {"json", "markdown"}:
+    if format not in {"json", "markdown", "sarif"}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "VALIDATION_FAILED", "message": "format must be json|markdown"},
+            detail={"code": "VALIDATION_FAILED", "message": "format must be json|markdown|sarif"},
         )
     try:
         result = GenerateReport(repos).execute(scan_id, fmt=format)

@@ -49,6 +49,7 @@ export default function NewScanForm() {
   const [maxAttempts, setMaxAttempts] = useState(2);
   const [enableMutation, setEnableMutation] = useState(true);
   const [runBenignSuite, setRunBenignSuite] = useState(true);
+  const [regressionOnly, setRegressionOnly] = useState(false);
   const [maxAttackCases, setMaxAttackCases] = useState(12);
   const [maxModelCalls, setMaxModelCalls] = useState(40);
   const [maxTotalTokens, setMaxTotalTokens] = useState(200_000);
@@ -106,6 +107,7 @@ export default function NewScanForm() {
       max_attempts_per_attack: maxAttempts,
       enable_mutation: enableMutation,
       run_benign_suite: runBenignSuite,
+      regression_only_mode: regressionOnly,
       budget: {
         max_attack_cases: maxAttackCases,
         max_attempts_per_attack: maxAttempts,
@@ -261,6 +263,15 @@ export default function NewScanForm() {
               className="h-4 w-4 accent-indigo-600"
             />
             Run benign utility suite (regression check after hardening)
+          </label>
+          <label className="flex items-center gap-3 text-sm text-indigo-300 font-medium">
+            <input
+              type="checkbox"
+              checked={regressionOnly}
+              onChange={(e) => setRegressionOnly(e.target.checked)}
+              className="h-4 w-4 accent-indigo-600"
+            />
+            Regression-only mode (re-test saved failure cases for this target)
           </label>
         </div>
       </fieldset>

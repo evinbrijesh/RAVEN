@@ -135,10 +135,20 @@ export function approveHardening(
   );
 }
 
+export function promoteFindingToRegression(
+  scanId: string,
+  findingId: string,
+): Promise<{ status: string; regression_id: string; attack_id: string; target_id: string }> {
+  return request<{ status: string; regression_id: string; attack_id: string; target_id: string }>(
+    `/api/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}/promote-regression`,
+    { method: "POST" },
+  );
+}
+
 export async function getReport(
   scanId: string,
-  format: "json" | "markdown",
-): Promise<Report | string> {
+  format: "json" | "markdown" | "sarif",
+): Promise<Report | Record<string, unknown> | string> {
   const path = `/api/scans/${encodeURIComponent(scanId)}/report?format=${format}`;
   if (format === "markdown") {
     let response: Response;
@@ -156,5 +166,5 @@ export async function getReport(
     if (!response.ok) throw await toApiError(response);
     return (await response.text()) as string;
   }
-  return request<Report>(path);
+  return request<Report | Record<string, unknown>>(path);
 }

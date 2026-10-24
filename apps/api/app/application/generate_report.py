@@ -55,6 +55,11 @@ class GenerateReport:
             content = report_to_markdown(report)
             self._repos.reports.save_artifact(scan_id, "markdown", content)
             return content
+        if fmt == "sarif":
+            sarif_data = report_to_sarif(report)
+            content = _to_json(sarif_data)
+            self._repos.reports.save_artifact(scan_id, "sarif", content)
+            return sarif_data
         artifact = self._repos.reports.save_artifact(scan_id, "json", _to_json(report))
         report["artifact_id"] = artifact
         return report
@@ -161,3 +166,76 @@ def report_to_markdown(report: dict[str, Any]) -> str:
         after_rate=before_after.get("after_attack_success_rate"),
         benign_rate=benign.get("benign_success_rate"),
     )
+
+
+def report_to_sarif(report: dict[str, Any]) -> dict[str, Any]:
+    """Convert a RAVEN report into OASIS SARIF 2.1.0 format."""
+    severity_map = {
+        "critical": "error",
+        "high": "error",
+        "medium": "warning",
+        "low": "note",
+    }
+
+    rules = []
+    seen_rules = set()
+    results = []
+
+    findings = report.get("findings", [])
+    for f in findings:
+        rule_id = f.get("attack_id", "RAVEN-UNKNOWN")
+        if rule_id not in seen_rules:
+            seen_rules.add(rule_id)
+            rules.append({
+                "id": rule_id,
+                "name": f.get("category", "llm_security"),
+                "shortDescription": {"text": f.get("summary", "LLM Security Finding")},
+                "defaultConfiguration": {
+                    "level": severity_map.get(str(f.get("severity", "")).lower(), "warning")
+                },
+                "properties": {
+                    "category": f.get("category"),
+                    "precision": "high" if f.get("label") == "confirmed_failure" else "medium",
+                },
+            })
+
+        results.append({
+            "ruleId": rule_id,
+            "level": severity_map.get(str(f.get("severity", "")).lower(), "warning"),
+            "message": {
+                "text": f"{f.get('summary', 'Finding detected')} (Label: {f.get('label')}, Confidence: {f.get('confidence', 0.0)})"
+            },
+            "locations": [
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": f"targets/{report.get('target', {}).get('id', 'unknown')}/system-prompt.txt"
+                        }
+                    }
+                }
+            ],
+            "properties": {
+                "finding_id": f.get("finding_id"),
+                "label": f.get("label"),
+                "needs_review": f.get("needs_review", False),
+                "evidence_refs": f.get("evidence_refs", []),
+            },
+        })
+
+    return {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "RAVEN",
+                        "version": "0.1.0",
+                        "informationUri": "https://github.com/evinbrijesh/RAVEN",
+                        "rules": rules,
+                    }
+                },
+                "results": results,
+            }
+        ],
+    }

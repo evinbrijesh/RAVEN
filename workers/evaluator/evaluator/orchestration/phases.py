@@ -109,7 +109,7 @@ class ScanEngine:
             judge_ctx = _judge_context(target, profile)
             semantic_judge = (
                 SemanticJudge(self._model_client, budget, self._model_name)
-                if self._model_client is not None
+                if self._model_client is not None and budget.budget.max_model_calls > 0
                 else None
             )
             runner = SecurityRegressionRunner(judge_ctx, budget, semantic_judge=semantic_judge)
@@ -153,14 +153,24 @@ class ScanEngine:
         self._set_status(scan_id, ScanStatus.ATTACKING, 0.15)
         scan = self._repos.scans.get(scan_id)
         assert scan is not None
-        cases = self._planner.select(
-            [c.value for c in scan.config.attack_categories],
-            scan.config.budget.max_attack_cases,
-        )
+        if scan.config.regression_only_mode:
+            # Load active regression cases for target
+            active_regs = self._repos.regressions.list_active(scan.target.target_id)
+            reg_case_ids = {r["attack_case_id"] for r in active_regs}
+            all_cases = self._planner.select(
+                [c.value for c in scan.config.attack_categories] if scan.config.attack_categories else [],
+                scan.config.budget.max_attack_cases,
+            )
+            cases = [c for c in all_cases if c.id in reg_case_ids] if reg_case_ids else all_cases[:3]
+        else:
+            cases = self._planner.select(
+                [c.value for c in scan.config.attack_categories],
+                scan.config.budget.max_attack_cases,
+            )
         judge_ctx = _judge_context(target, profile)
         semantic_judge = (
             SemanticJudge(self._model_client, budget, self._model_name)
-            if self._model_client is not None
+            if self._model_client is not None and budget.budget.max_model_calls > 0
             else None
         )
         runner = SecurityRegressionRunner(

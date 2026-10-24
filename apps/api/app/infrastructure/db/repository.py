@@ -308,6 +308,25 @@ class FindingRepository:
             for row in rows
         ]
 
+    def get(self, finding_id: str) -> Finding | None:
+        row = self._db.query_one("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
+        if row is None:
+            return None
+        return Finding(
+            finding_id=row["finding_id"],
+            scan_id=row["scan_id"],
+            attack_id=row["attack_id"],
+            category=row["category"],
+            severity=row["severity"],
+            label=FindingLabel(row["label"]),
+            confidence=row["confidence"],
+            summary=row["summary"],
+            evidence_refs=json.loads(row["evidence_refs_json"]),
+            needs_review=bool(row["needs_review"]),
+            status=row["status"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
 
 class ProposalRepository:
     def __init__(self, db: Database) -> None:

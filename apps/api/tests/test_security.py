@@ -65,3 +65,26 @@ def test_validate_scan_config_clamps_budget() -> None:
     )
     assert config.budget.max_attack_cases == 12
     assert config.budget.max_attempts_per_attack == 2
+
+
+def test_ssrf_validation() -> None:
+    import pytest
+
+    from app.security.ssrf import SSRFValidationError, assert_consent_header, validate_target_url
+
+    # Local / loopback addresses should be rejected
+    with pytest.raises(SSRFValidationError):
+        validate_target_url("http://127.0.0.1:8080/chat")
+
+    with pytest.raises(SSRFValidationError):
+        validate_target_url("http://10.0.0.1/chat")
+
+    with pytest.raises(SSRFValidationError):
+        validate_target_url("http://169.254.169.254/latest/meta-data")
+
+    # Consent header requirement
+    with pytest.raises(SSRFValidationError):
+        assert_consent_header({"some-header": "value"})
+
+    assert_consent_header({"x-raven-scan-consent": "true"})
+

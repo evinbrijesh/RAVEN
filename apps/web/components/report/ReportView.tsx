@@ -19,7 +19,7 @@ function download(filename: string, content: string, mime: string): void {
 export default function ReportView({ scanId }: { scanId: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"json" | "markdown" | null>(null);
+  const [exporting, setExporting] = useState<"json" | "markdown" | "sarif" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -31,7 +31,7 @@ export default function ReportView({ scanId }: { scanId: string }) {
         setError("Report endpoint returned an unexpected format.");
         return;
       }
-      setReport(result);
+      setReport(result as Report);
     } catch (cause) {
       setError(
         cause instanceof ApiRequestError ? cause.message : "Failed to load report.",
@@ -43,7 +43,7 @@ export default function ReportView({ scanId }: { scanId: string }) {
     void load();
   }, [load]);
 
-  async function exportReport(format: "json" | "markdown"): Promise<void> {
+  async function exportReport(format: "json" | "markdown" | "sarif"): Promise<void> {
     setExporting(format);
     setExportError(null);
     try {
@@ -52,6 +52,11 @@ export default function ReportView({ scanId }: { scanId: string }) {
         const text =
           typeof result === "string" ? result : JSON.stringify(result, null, 2);
         download(`raven-report-${scanId}.json`, text, "application/json");
+      } else if (format === "sarif") {
+        const result = await getReport(scanId, "sarif");
+        const text =
+          typeof result === "string" ? result : JSON.stringify(result, null, 2);
+        download(`raven-report-${scanId}.sarif`, text, "application/sarif+json");
       } else {
         const markdown = await getReport(scanId, "markdown");
         download(
@@ -95,6 +100,14 @@ export default function ReportView({ scanId }: { scanId: string }) {
           </span>
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void exportReport("sarif")}
+            disabled={exporting !== null}
+            className="rounded-md border border-indigo-700/60 bg-indigo-950/30 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-900/40 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exporting === "sarif" ? "Exporting…" : "Export SARIF"}
+          </button>
           <button
             type="button"
             onClick={() => void exportReport("json")}

@@ -141,27 +141,75 @@ The approval only changes the temporary demo target. It never deploys to an exte
 
 ## 7. Report
 
-`GET /api/scans/{scan_id}/report?format=json`
+`GET /api/scans/{scan_id}/report?format=json|markdown|sarif&download=false`
 
-Top-level schema:
+JSON is the canonical artifact. Markdown and SARIF 2.1.0 are pure projections
+of the same report document. The full schema is
+`packages/contracts/report.schema.json` (v1.0). Generation reads persisted
+evidence only; it never calls a target or model.
+
+Top-level shape:
 
 ```json
 {
-  "schema_version": "0.1",
-  "scan_id": "scan_123",
-  "target": {"id":"shophelper-local","version":"demo-1"},
-  "coverage": {"attack_cases":12,"categories":4},
+  "schema_version": "1.0",
+  "report_id": "rpt_abc123",
+  "generated_at": "2026-10-25T20:00:00Z",
+  "generator": {"name": "raven", "version": "0.1.0"},
+  "scan": {
+    "scan_id": "scan_123",
+    "status": "completed",
+    "created_at": "2026-10-25T19:45:00Z",
+    "completed_at": "2026-10-25T19:55:00Z",
+    "target": {"id": "shophelper-local", "version": "demo-1"},
+    "config": {},
+    "profile": null
+  },
+  "summary": {
+    "verdict": "improved",
+    "headline": "Attack success reduced under stated checks.",
+    "counts": {},
+    "judge": {}
+  },
+  "coverage": {
+    "attack_cases": 12,
+    "categories": ["direct_injection", "canary_leakage", "sensitive_data", "tool_misuse"],
+    "benign_cases": 8,
+    "attack_catalog_version": "v1",
+    "benign_catalog_version": "v1"
+  },
   "findings": [],
-  "hardening": {"proposal":{},"approved":true},
-  "before_after": {},
-  "benign_regression": {},
+  "hardening": {"proposal": null, "approval": null, "applied_to": "not_applied"},
+  "before_after": {"security": {}, "utility": {}},
+  "evidence": [],
+  "model_usage": {},
+  "tool_versions": {"raven": "0.1.0", "target": "demo-1"},
+  "redaction": {"applied": true, "transcript_excerpt_chars": 4000, "redacted_fields": []},
   "limitations": [
-    "Results cover only the selected cases and target configuration."
+    "Results cover only the selected cases and target configuration.",
+    "A clean result means clean under the stated checks, not globally secure."
   ],
-  "tool_versions": {},
-  "generated_at": "2026-10-24T20:00:00Z"
+  "integrity": {
+    "content_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "source": "persisted_evidence_only"
+  }
 }
 ```
+
+Formats:
+
+| `format` | Content-Type | Notes |
+|---|---|---|
+| `json` | `application/json` | Canonical document |
+| `markdown` | `text/markdown; charset=utf-8` | Deterministic human-readable projection |
+| `sarif` | `application/sarif+json` | SARIF 2.1.0; actionable findings only |
+
+`download=true` adds `Content-Disposition: attachment; filename="raven-{scan_id}-report.{ext}"`.
+All responses include `X-RAVEN-Report-Schema`, `X-RAVEN-Report-SHA256`, and
+`X-RAVEN-Report-Artifact`.
+
+Partial or failed scans return `200` with `summary.verdict` set to `partial` or
+`inconclusive`; they are never returned as a blank report.
 
 ## 8. Core schemas
 

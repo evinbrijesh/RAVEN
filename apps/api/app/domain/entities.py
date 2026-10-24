@@ -36,6 +36,7 @@ class ScanConfig(BaseModel):
     max_attempts_per_attack: int = Field(default=2, ge=1, le=2)
     enable_mutation: bool = True
     run_benign_suite: bool = True
+    regression_only_mode: bool = False
     budget: Budget = Field(default_factory=Budget)
 
 

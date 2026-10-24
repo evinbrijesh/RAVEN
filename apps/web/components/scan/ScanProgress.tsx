@@ -55,20 +55,48 @@ export default function ScanProgress({ scan }: { scan: ScanView }) {
       {(scan.security_metrics.before_attack_success_rate !== null ||
         scan.security_metrics.after_attack_success_rate !== null ||
         scan.security_metrics.benign_success_rate !== null) && (
-        <dl className="mt-4 grid grid-cols-1 gap-3 border-t border-zinc-800 pt-4 text-sm sm:grid-cols-3">
-          <RateMetric
-            label="Attack success (before)"
-            value={scan.security_metrics.before_attack_success_rate}
-          />
-          <RateMetric
-            label="Attack success (after hardening)"
-            value={scan.security_metrics.after_attack_success_rate}
-          />
-          <RateMetric
-            label="Benign success"
-            value={scan.security_metrics.benign_success_rate}
-          />
-        </dl>
+        <div className="mt-4 border-t border-zinc-800 pt-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-indigo-400">
+            Security & Utility Frontier (Before vs. After Hardening)
+          </p>
+          <dl className="mt-2.5 grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
+            <RateMetric
+              label="Attack Block Rate (Security Gain)"
+              value={
+                scan.security_metrics.after_attack_success_rate !== null
+                  ? 1 - scan.security_metrics.after_attack_success_rate
+                  : scan.security_metrics.before_attack_success_rate !== null
+                    ? 1 - scan.security_metrics.before_attack_success_rate
+                    : null
+              }
+              delta={
+                scan.security_metrics.before_attack_success_rate !== null &&
+                scan.security_metrics.after_attack_success_rate !== null
+                  ? Math.round(
+                      ((1 - scan.security_metrics.after_attack_success_rate) -
+                        (1 - scan.security_metrics.before_attack_success_rate)) *
+                        100,
+                    )
+                  : undefined
+              }
+              tone="ok"
+            />
+            <RateMetric
+              label="Benign Task Pass Rate (Utility Preserved)"
+              value={scan.security_metrics.benign_success_rate}
+              tone="ok"
+            />
+            <RateMetric
+              label="Over-Refusal Rate (Utility Penalty)"
+              value={
+                scan.security_metrics.benign_success_rate !== null
+                  ? 1 - scan.security_metrics.benign_success_rate
+                  : null
+              }
+              tone="warn"
+            />
+          </dl>
+        </div>
       )}
     </section>
   );
@@ -102,15 +130,37 @@ function Metric({
 function RateMetric({
   label,
   value,
+  delta,
+  tone,
 }: {
   label: string;
   value: number | null;
+  delta?: number;
+  tone?: "ok" | "warn" | "bad";
 }) {
+  const color =
+    tone === "bad"
+      ? "text-red-300"
+      : tone === "warn"
+        ? "text-amber-300"
+        : tone === "ok"
+          ? "text-emerald-300"
+          : "text-zinc-200";
+
   return (
-    <div>
+    <div className="rounded-md bg-zinc-900/80 p-2.5">
       <dt className="text-xs text-zinc-500">{label}</dt>
-      <dd className="mt-0.5 font-semibold text-zinc-200">
-        {value === null ? "—" : `${Math.round(value * 100)}%`}
+      <dd className="mt-1 flex items-baseline gap-2">
+        <span className={`text-base font-semibold ${color}`}>
+          {value === null ? "—" : `${Math.round(value * 100)}%`}
+        </span>
+        {delta !== undefined && (
+          <span
+            className={`text-xs font-medium ${delta >= 0 ? "text-emerald-400" : "text-red-400"}`}
+          >
+            {delta >= 0 ? `+${delta}%` : `${delta}%`}
+          </span>
+        )}
       </dd>
     </div>
   );

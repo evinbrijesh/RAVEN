@@ -93,6 +93,7 @@ export interface ScanConfig {
   max_attempts_per_attack: number;
   enable_mutation: boolean;
   run_benign_suite: boolean;
+  regression_only_mode?: boolean;
   budget: Budget;
 }
 
