@@ -127,6 +127,9 @@ CREATE TABLE IF NOT EXISTS regression_cases (
 );
 CREATE INDEX IF NOT EXISTS idx_regression_cases
     ON regression_cases(target_id, attack_case_id, active);
+-- The unique active-regression index (uq_regression_cases_active) is created
+-- defensively by sqlite.migrate() so dirty pre-existing databases do not
+-- crash startup.
 
 CREATE TABLE IF NOT EXISTS test_runs (
     test_run_id  TEXT PRIMARY KEY,

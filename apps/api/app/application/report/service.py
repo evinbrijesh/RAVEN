@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from app.application.report.assembler import assemble, generator_version
 from app.application.report.collector import EvidenceBundle, collect
-from app.application.report.redaction import redact_payload
+from app.application.report.redaction import redact_payload, truncate_transcripts
 from app.application.report.renderers.json import render_json
 from app.application.report.renderers.markdown import render_markdown
 from app.application.report.renderers.sarif import render_sarif
@@ -48,14 +46,15 @@ def generate(repos: Repositories, scan_id: str) -> ReportResult:
     bundle: EvidenceBundle = collect(repos, scan_id)
     document = assemble(bundle)
 
-    # Redaction at render time: raw evidence stays in the database.
+    # Redaction + truncation at render time: raw evidence stays in the DB.
     canary = bundle.profile.canary_token if bundle.profile else ""
-    payload = redact_payload(document.model_dump(mode="json"), canary)
+    payload = truncate_transcripts(redact_payload(document.model_dump(mode="json"), canary))
 
     content_sha256 = _canonical_hash(payload)
-    report_id = f"rpt_{uuid.uuid4().hex[:12]}"
+    # Deterministic identity: the same evidence state must produce the same
+    # report id and byte-identical projections, so artifact writes dedupe.
+    report_id = f"rpt_{content_sha256[:12]}"
     payload["report_id"] = report_id
-    payload["generated_at"] = datetime.now(UTC).isoformat()
     payload["integrity"] = {
         "content_sha256": content_sha256,
         "source": "persisted_evidence_only",

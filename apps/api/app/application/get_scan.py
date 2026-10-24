@@ -19,6 +19,7 @@ class GetScan:
         if scan is None:
             raise NotFoundError(f"Scan '{scan_id}' not found.")
         findings = self._repos.findings.list_for_scan(scan_id)
+        profile = self._repos.profiles.get(scan_id)
         return ScanView(
             scan_id=scan.scan_id,
             status=scan.status,
@@ -27,6 +28,7 @@ class GetScan:
             target_id=scan.target.target_id,
             counts=self._counts(findings),
             security_metrics=self._security_metrics(scan_id),
+            profile=profile,
         )
 
     @staticmethod

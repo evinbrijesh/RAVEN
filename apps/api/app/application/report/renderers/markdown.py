@@ -26,9 +26,12 @@ def _pct(value: float | None) -> str:
 
 
 def _table(headers: list[str], rows: list[list[str]]) -> str:
+    def escape(cell: str) -> str:
+        return cell.replace("|", "\\|").replace("\n", " ")
+
     out = ["| " + " | ".join(headers) + " |", "|" + "|".join(["---"] * len(headers)) + "|"]
     for row in rows:
-        out.append("| " + " | ".join(cell.replace("\n", " ") for cell in row) + " |")
+        out.append("| " + " | ".join(escape(cell) for cell in row) + " |")
     return "\n".join(out)
 
 
@@ -262,9 +265,11 @@ def render_markdown(document: ReportDocument) -> str:
         if proposal.risks:
             parts.append(f"- **Risks:** {', '.join(proposal.risks)}")
         parts.append("")
-        parts.append("```diff")
+        # Use a longer fence when the diff itself contains triple backticks.
+        fence = "````" if "```" in proposal.prompt_diff else "```"
+        parts.append(fence)
         parts.append(proposal.prompt_diff)
-        parts.append("```")
+        parts.append(fence)
         if proposal.policy_candidate is not None:
             pc = proposal.policy_candidate
             parts.append("")

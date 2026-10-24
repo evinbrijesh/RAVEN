@@ -100,6 +100,16 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
   const reviewCount = findings?.filter((f) => f.needs_review || f.label === "needs_review").length ?? 0;
 
   const [modalTab, setModalTab] = useState<"timeline" | "transcript">("timeline");
+  const [redactView, setRedactView] = useState(true);
+
+  function maskSensitiveText(text: string): string {
+    if (!redactView || !text) return text;
+    return text
+      .replace(/RAVEN-CANARY-[A-Za-z0-9_-]+/g, "[REDACTED_CANARY]")
+      .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[REDACTED_EMAIL]")
+      .replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, "[REDACTED_PHONE]")
+      .replace(/\b(?:\d{4}[ -]?){3}\d{4}\b/g, "[REDACTED_CARD]");
+  }
 
   const BADGE_STYLES: Record<string, string> = {
     breach: "bg-red-950/80 text-red-300 border-red-800",
@@ -261,9 +271,23 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
                     Raw Transcript
                   </button>
                 </div>
-                <span className="text-[11px] text-zinc-500 font-mono">
-                  {modalTab === "timeline" ? "Deterministic State Trace" : "Wire Messages"}
-                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setRedactView((prev) => !prev)}
+                    className={`rounded border px-2 py-0.5 text-[10px] font-mono transition ${
+                      redactView
+                        ? "border-emerald-700/60 bg-emerald-950/40 text-emerald-300"
+                        : "border-amber-700/60 bg-amber-950/40 text-amber-300"
+                    }`}
+                    title="Toggle simulated privacy masking for canary tokens and customer PII"
+                  >
+                    {redactView ? "🔒 Redaction Active" : "🔓 Raw Privacy Exposure"}
+                  </button>
+                  <span className="text-[11px] text-zinc-500 font-mono">
+                    {modalTab === "timeline" ? "Deterministic State Trace" : "Wire Messages"}
+                  </span>
+                </div>
               </div>
 
               {loadingTranscript ? (
@@ -297,7 +321,7 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
                               </div>
                             </div>
                             <div className="font-mono text-[11px] text-zinc-400 whitespace-pre-wrap break-words bg-zinc-900/60 rounded p-2 border border-zinc-800/60">
-                              {item.detail}
+                              {maskSensitiveText(item.detail)}
                             </div>
                           </div>
                         </div>
@@ -330,10 +354,10 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
                           <div className="text-[10px] uppercase font-bold text-zinc-500 mb-1">
                             [{m.role}] {m.tool_name ? `(tool: ${m.tool_name})` : ""}
                           </div>
-                          <div className="whitespace-pre-wrap">{m.content}</div>
+                          <div className="whitespace-pre-wrap">{maskSensitiveText(m.content)}</div>
                           {m.tool_args_json && (
                             <pre className="mt-1 text-[11px] text-zinc-400">
-                              {m.tool_args_json}
+                              {maskSensitiveText(m.tool_args_json)}
                             </pre>
                           )}
                         </div>

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.security.redaction import redact
+from app.security.redaction import SENSITIVE_KEYS, redact
 
 CANARY_PLACEHOLDER = "[REDACTED:canary]"
 MAX_MESSAGE_CHARS = 4_000
@@ -46,11 +46,36 @@ def redact_payload(payload: Any, canary_token: str = "") -> Any:
         return {
             key: redact_payload(value, canary_token)
             for key, value in payload.items()
-            # Never emit a raw canary field, even if one sneaks into a payload.
-            if key != "canary_token"
+            # Never emit sensitive-keyed values (canary, api keys, tokens,
+            # secrets), even if one sneaks into a payload.
+            if str(key).lower() not in SENSITIVE_KEYS
         }
     if isinstance(payload, list):
         return [redact_payload(item, canary_token) for item in payload]
+    return payload
+
+
+def truncate_transcripts(payload: Any) -> Any:
+    """Walk a report payload and truncate every embedded transcript bundle.
+
+    Applies the per-message and per-bundle caps to any dict shaped like a
+    ReportTranscript (has a `messages` list and a `truncated` flag), keeping
+    the advertised `transcript_excerpt_chars` honest.
+    """
+    if isinstance(payload, dict):
+        messages = payload.get("messages")
+        if isinstance(messages, list) and "truncated" in payload:
+            truncated_messages, truncated = truncate_messages(messages)
+            return {
+                **payload,
+                "messages": [
+                    truncate_transcripts(message) for message in truncated_messages
+                ],
+                "truncated": truncated or bool(payload.get("truncated")),
+            }
+        return {key: truncate_transcripts(value) for key, value in payload.items()}
+    if isinstance(payload, list):
+        return [truncate_transcripts(item) for item in payload]
     return payload
 
 

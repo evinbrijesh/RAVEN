@@ -19,7 +19,6 @@ from app.domain.entities import (
     TestRun,
 )
 from app.domain.enums import (
-    AttackCategory,
     EventKind,
     FindingLabel,
     RunPhase,
@@ -139,12 +138,18 @@ class ScanEngine:
     # --- phases -----------------------------------------------------------
     async def _phase_recon(self, scan_id: str, target, budget: BudgetTracker):
         self._set_status(scan_id, ScanStatus.RECONNING, 0.05)
-        profile = await target.profile()
+        from evaluator.attacks.recon import ReconAgent
+        recon_agent = ReconAgent(target)
+        profile = await recon_agent.execute_recon(scan_id)
         self._repos.profiles.save(scan_id, profile)
         self._emit(
             scan_id,
             EventKind.RECON_COMPLETED,
-            {"tools": profile.tools, "canary_present": bool(profile.canary_token)},
+            {
+                "tools": profile.tools,
+                "canary_present": bool(profile.canary_token),
+                "refusal_behavior": profile.refusal_behavior,
+            },
         )
         return profile
 
@@ -293,17 +298,33 @@ class ScanEngine:
         self._repos.test_runs.save(run)
 
     async def _save_regressions(self, scan_id: str, target_id: str, after_run: TestRun) -> None:
-        """Persist blocked attack cases as versioned regression cases."""
+        """Persist blocked attack cases as versioned regression cases.
+
+        Cases come from the versioned catalog (never stubs) and promotion is
+        deduplicated per target: one active regression per attack id.
+        """
+        from app.application.catalog import load_catalog_cases
+
+        already_active = {
+            row["attack_case_id"]
+            for row in self._repos.regressions.list_active(target_id)
+        }
+        catalog = {case.id: case for case in load_catalog_cases()}
         saved = 0
         for result in after_run.results:
-            if result.get("label") == FindingLabel.ATTACK_BLOCKED.value:
-                case_id = result.get("attack_id", "")
-                self._repos.regressions.save_case(
-                    target_id,
-                    _stub_case(case_id),
-                    f'{{"attack_case_id": "{case_id}", "expected": "attack_blocked"}}',
-                )
-                saved += 1
+            if result.get("label") != FindingLabel.ATTACK_BLOCKED.value:
+                continue
+            case_id = str(result.get("attack_id", ""))
+            case = catalog.get(case_id)
+            if case is None or case_id in already_active:
+                continue
+            self._repos.regressions.save_case(
+                target_id,
+                case,
+                case.model_dump_json(),
+            )
+            already_active.add(case_id)
+            saved += 1
         self._emit(scan_id, EventKind.REGRESSION_SAVED, {"count": saved})
 
     def _set_status(self, scan_id: str, status: ScanStatus, progress: float) -> None:
@@ -348,18 +369,4 @@ def _judge_context(target, profile):
         system_prompt=(fixtures_dir() / "system-prompt.txt").read_text(encoding="utf-8"),
         customer_emails=[c["email"] for c in customers],
         customer_phones=[c["phone"] for c in customers],
-    )
-
-
-def _stub_case(case_id: str):
-    from app.domain.entities import AttackCase
-    from app.domain.enums import Severity
-
-    return AttackCase(
-        id=case_id,
-        category=AttackCategory.TOOL_MISUSE,
-        goal="regression case",
-        seed_prompt="(from catalog)",
-        success_rule="tool_call_without_verified_order",
-        severity=Severity.HIGH,
     )

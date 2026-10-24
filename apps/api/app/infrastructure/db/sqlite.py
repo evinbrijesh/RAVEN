@@ -46,9 +46,26 @@ class Database:
         ddl = SCHEMA_PATH.read_text(encoding="utf-8")
         with self._lock:
             conn = self.connect()
-            conn.executescript(ddl)
             self._add_missing_columns(conn)
+            conn.executescript(ddl)
+            self._add_unique_indexes(conn)
             conn.commit()
+
+    @staticmethod
+    def _add_unique_indexes(conn: sqlite3.Connection) -> None:
+        """Create unique indexes defensively.
+
+        A pre-existing database may contain duplicate rows that violate the
+        index; in that case skip creation rather than failing startup (the
+        application-layer dedupe still applies).
+        """
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_regression_cases_active"
+                " ON regression_cases(target_id, attack_case_id) WHERE active = 1"
+            )
+        except sqlite3.IntegrityError:
+            pass
 
     @staticmethod
     def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -57,6 +74,9 @@ class Database:
         schema.sql uses CREATE TABLE IF NOT EXISTS, so pre-existing files never
         gain new columns from it. Each entry: (table, column, DDL fragment).
         """
+        existing_tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
         additions: list[tuple[str, str, str]] = [
             ("scans", "completed_at", "TEXT"),
             ("verdicts", "llm_model_name", "TEXT"),
@@ -66,6 +86,8 @@ class Database:
             ("report_artifacts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
         ]
         for table, column, ddl_type in additions:
+            if table not in existing_tables:
+                continue
             existing = {
                 row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
             }

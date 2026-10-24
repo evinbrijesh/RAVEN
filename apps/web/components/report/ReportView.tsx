@@ -4,23 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiRequestError, getReport } from "@/lib/api-client";
 import type { Report } from "@/lib/types";
 import { ErrorBlock, LoadingBlock } from "@/components/ui/StateViews";
+import ReportSummary from "./ReportSummary";
+import SecurityUtilityDelta from "./SecurityUtilityDelta";
+import ReportFindings from "./ReportFindings";
+import ReportEvidence from "./ReportEvidence";
+import ReportHardening from "./ReportHardening";
+import ReportLimitations from "./ReportLimitations";
+import ReportActions from "./ReportActions";
 
-function download(filename: string, content: string, mime: string): void {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
-}
-
-/** Report view with JSON / Markdown export. */
+/** Report view composed from the report primitives (ADR 0001 UI contract). */
 export default function ReportView({ scanId }: { scanId: string }) {
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [exporting, setExporting] = useState<"json" | "markdown" | "sarif" | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -43,39 +38,6 @@ export default function ReportView({ scanId }: { scanId: string }) {
     void load();
   }, [load]);
 
-  async function exportReport(format: "json" | "markdown" | "sarif"): Promise<void> {
-    setExporting(format);
-    setExportError(null);
-    try {
-      if (format === "json") {
-        const result = await getReport(scanId, "json");
-        const text =
-          typeof result === "string" ? result : JSON.stringify(result, null, 2);
-        download(`raven-report-${scanId}.json`, text, "application/json");
-      } else if (format === "sarif") {
-        const result = await getReport(scanId, "sarif");
-        const text =
-          typeof result === "string" ? result : JSON.stringify(result, null, 2);
-        download(`raven-report-${scanId}.sarif`, text, "application/sarif+json");
-      } else {
-        const markdown = await getReport(scanId, "markdown");
-        download(
-          `raven-report-${scanId}.md`,
-          typeof markdown === "string" ? markdown : "",
-          "text/markdown",
-        );
-      }
-    } catch (cause) {
-      setExportError(
-        cause instanceof ApiRequestError
-          ? `${cause.code}: ${cause.message}`
-          : "Export failed.",
-      );
-    } finally {
-      setExporting(null);
-    }
-  }
-
   if (error) {
     return (
       <ErrorBlock
@@ -90,102 +52,37 @@ export default function ReportView({ scanId }: { scanId: string }) {
   }
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-900/50">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2.5">
+    <section className="space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-medium text-zinc-300">
           Report{" "}
           <span className="text-xs text-zinc-500">
-            schema v{report.schema_version} · generated{" "}
+            schema v{report.schema_version} · {report.report_id} · generated{" "}
             {new Date(report.generated_at).toLocaleString()}
           </span>
         </h2>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void exportReport("sarif")}
-            disabled={exporting !== null}
-            className="rounded-md border border-indigo-700/60 bg-indigo-950/30 px-3 py-1.5 text-xs font-medium text-indigo-300 hover:bg-indigo-900/40 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exporting === "sarif" ? "Exporting…" : "Export SARIF"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void exportReport("json")}
-            disabled={exporting !== null}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exporting === "json" ? "Exporting…" : "Export JSON"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void exportReport("markdown")}
-            disabled={exporting !== null}
-            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {exporting === "markdown" ? "Exporting…" : "Export Markdown"}
-          </button>
-        </div>
+        <ReportActions scanId={scanId} />
       </header>
 
-      {exportError && (
-        <div className="px-4 pt-3">
-          <ErrorBlock title="Export failed" message={exportError} />
-        </div>
-      )}
+      <ReportSummary report={report} />
+      <SecurityUtilityDelta report={report} />
 
-      <div className="space-y-4 p-4 text-sm">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Fact label="Target" value={`${report.scan.target.id} (${report.scan.target.version})`} />
-          <Fact
-            label="Coverage"
-            value={`${report.coverage.attack_cases} cases · ${report.coverage.categories.length} categories`}
-          />
-          <Fact
-            label="Hardening approved"
-            value={
-              !report.hardening.approval
-                ? "—"
-                : report.hardening.approval.approved
-                  ? "yes"
-                  : "no"
-            }
-          />
-        </div>
-
-        {report.limitations.length > 0 && (
-          <div className="rounded-md border border-amber-900/50 bg-amber-950/20 p-3">
-            <p className="text-xs font-medium text-amber-300">Limitations</p>
-            <ul className="mt-1 list-inside list-disc text-xs text-amber-200/80">
-              {report.limitations.map((limitation) => (
-                <li key={limitation}>{limitation}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <details className="rounded-md border border-zinc-800 bg-zinc-950">
-          <summary className="cursor-pointer px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200">
-            Raw report JSON
-          </summary>
-          <pre className="max-h-96 overflow-auto p-3 font-mono text-xs text-zinc-400">
-            {JSON.stringify(report, null, 2)}
-          </pre>
-        </details>
-
-        <p className="text-xs text-zinc-500">
-          A clean report is not a security guarantee — results cover only the
-          selected cases and target configuration.
-        </p>
+      <div>
+        <h3 className="mb-2 text-sm font-medium text-zinc-300">Findings</h3>
+        <ReportFindings report={report} />
       </div>
-    </section>
-  );
-}
 
-function Fact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md bg-zinc-900 px-3 py-2">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-0.5 font-medium text-zinc-200">{value}</p>
-    </div>
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <h3 className="mb-2 text-sm font-medium text-zinc-300">Hardening</h3>
+        <ReportHardening report={report} />
+      </div>
+
+      <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
+        <h3 className="mb-2 text-sm font-medium text-zinc-300">Evidence</h3>
+        <ReportEvidence report={report} />
+      </div>
+
+      <ReportLimitations report={report} />
+    </section>
   );
 }

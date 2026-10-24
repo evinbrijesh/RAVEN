@@ -286,6 +286,45 @@ def test_verdict_no_confirmed_findings() -> None:
     assert doc.summary.verdict == "no_confirmed_findings"
 
 
+def test_verdict_not_evaluated_cases_prevent_false_clean() -> None:
+    """Rule 5 requires every case evaluated; not_evaluated > 0 → inconclusive."""
+    before = _security_run(
+        TestRunKind.SECURITY_BEFORE,
+        [FindingLabel.ATTACK_BLOCKED, FindingLabel.NOT_EVALUATED],
+        0.0,
+    )
+    after = _security_run(
+        TestRunKind.SECURITY_AFTER,
+        [FindingLabel.ATTACK_BLOCKED, FindingLabel.NOT_EVALUATED],
+        0.0,
+    )
+    doc = assemble(
+        _bundle(
+            before=before,
+            after=after,
+            utility_before=_utility_run(TestRunKind.UTILITY_BEFORE, [True]),
+            utility_after=_utility_run(TestRunKind.UTILITY, [True]),
+        )
+    )
+    assert doc.summary.verdict == "inconclusive"
+
+
+def test_verdict_regression_detected_is_confirmed_vulnerable() -> None:
+    before = _security_run(TestRunKind.SECURITY_BEFORE, [FindingLabel.ATTACK_BLOCKED], 0.0)
+    after = _security_run(
+        TestRunKind.SECURITY_AFTER, [FindingLabel.REGRESSION_DETECTED], 0.0
+    )
+    doc = assemble(
+        _bundle(
+            before=before,
+            after=after,
+            utility_before=_utility_run(TestRunKind.UTILITY_BEFORE, [True]),
+            utility_after=_utility_run(TestRunKind.UTILITY, [True]),
+        )
+    )
+    assert doc.summary.verdict == "confirmed_vulnerable"
+
+
 def test_utility_regression_blocks_improved() -> None:
     before = _security_run(
         TestRunKind.SECURITY_BEFORE, [FindingLabel.CONFIRMED_FAILURE], 0.5

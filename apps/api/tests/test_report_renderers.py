@@ -126,11 +126,40 @@ def test_sarif_category_rules_and_fingerprints() -> None:
     assert rule_ids == {"RAVEN/LLM01-prompt-injection"}
     result = run["results"][0]
     assert result["ruleId"] == "RAVEN/LLM01-prompt-injection"
-    fingerprint = result["fingerprint"]["RAVEN/stableFingerprint/v1"]
+    # SARIF 2.1.0 uses partialFingerprints (fingerprint was removed in 2.1.0).
+    fingerprint = result["partialFingerprints"]["ravenFindingV1"]
     assert len(fingerprint) == 64
     assert result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == (
         f"raven://target/{TARGET_ID}/attack/A-01"
     )
+    assert run["automationDetails"]["id"] == f"raven/{TARGET_ID}"
+
+
+def test_sarif_level_mapping_follows_severity() -> None:
+    """ADR: critical/high → error, medium → warning, low/needs_review → note."""
+    from app.domain.enums import FindingLabel, Severity
+
+    doc = _document()
+    # The seeded finding is confirmed_failure/high → error.
+    sarif = json.loads(render_sarif(doc))
+    assert sarif["runs"][0]["results"][0]["level"] == "error"
+
+    base = _document()
+    medium = base.findings[0].model_copy(
+        update={"severity": Severity.MEDIUM, "label": FindingLabel.LIKELY_FAILURE}
+    )
+    doc_medium = base.model_copy(update={"findings": [medium]})
+    assert json.loads(render_sarif(doc_medium))["runs"][0]["results"][0]["level"] == "warning"
+
+    low = base.findings[0].model_copy(update={"severity": Severity.LOW})
+    doc_low = base.model_copy(update={"findings": [low]})
+    assert json.loads(render_sarif(doc_low))["runs"][0]["results"][0]["level"] == "note"
+
+    review = base.findings[0].model_copy(
+        update={"severity": Severity.CRITICAL, "label": FindingLabel.NEEDS_REVIEW}
+    )
+    doc_review = base.model_copy(update={"findings": [review]})
+    assert json.loads(render_sarif(doc_review))["runs"][0]["results"][0]["level"] == "note"
 
 
 def test_sarif_fingerprint_is_stable_across_scan_ids() -> None:
@@ -138,8 +167,8 @@ def test_sarif_fingerprint_is_stable_across_scan_ids() -> None:
     doc_a = _document()
     doc_b = _document()
     assert (
-        json.loads(render_sarif(doc_a))["runs"][0]["results"][0]["fingerprint"]
-        == json.loads(render_sarif(doc_b))["runs"][0]["results"][0]["fingerprint"]
+        json.loads(render_sarif(doc_a))["runs"][0]["results"][0]["partialFingerprints"]
+        == json.loads(render_sarif(doc_b))["runs"][0]["results"][0]["partialFingerprints"]
     )
 
 

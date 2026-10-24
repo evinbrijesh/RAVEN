@@ -31,7 +31,17 @@ def promote_finding_to_regression(
     finding_id: str,
     repos: Repositories = Depends(get_repositories),
 ) -> dict[str, str]:
-    """Promote a confirmed failure or reviewable finding to a persistent regression case."""
+    """Promote a reviewable finding to a persistent regression case.
+
+    Safety (ADR 0001 review gate B5): the finding must belong to the scan,
+    only actionable labels may be promoted, the persisted case is the real
+    versioned catalog case (never a stub), and promotion is deduplicated per
+    target.
+    """
+    from app.application.catalog import load_catalog_case
+    from app.domain.enums import FindingLabel
+    from app.domain.errors import RavenError
+
     scan = repos.scans.get(scan_id)
     if scan is None:
         raise HTTPException(
@@ -39,32 +49,75 @@ def promote_finding_to_regression(
             detail=NotFoundError(f"Scan '{scan_id}' not found.").to_payload(),
         )
     finding = repos.findings.get(finding_id)
-    if finding is None:
+    if finding is None or finding.scan_id != scan_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=NotFoundError(f"Finding '{finding_id}' not found.").to_payload(),
+            detail=NotFoundError(
+                f"Finding '{finding_id}' not found in scan '{scan_id}'."
+            ).to_payload(),
         )
 
-    # Save to regression cases for this target
-    from app.domain.entities import AttackCase
-    stub_case = AttackCase(
-        id=finding.attack_id,
-        category=finding.category,
-        goal=finding.summary,
-        seed_prompt="",
-        success_rule="",
-        severity=finding.severity,
+    promotable = {
+        FindingLabel.CONFIRMED_FAILURE,
+        FindingLabel.LIKELY_FAILURE,
+        FindingLabel.NEEDS_REVIEW,
+    }
+    if finding.label not in promotable:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "VALIDATION_FAILED",
+                "message": f"Label '{finding.label.value}' cannot be promoted to a regression case.",
+                "retryable": False,
+                "details": {"label": finding.label.value},
+            },
+        )
+
+    try:
+        catalog_case = load_catalog_case(finding.attack_id)
+    except RavenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_payload()
+        ) from exc
+    if catalog_case is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "VALIDATION_FAILED",
+                "message": f"Attack '{finding.attack_id}' is not in the versioned catalog.",
+                "retryable": False,
+                "details": {"attack_id": finding.attack_id},
+            },
+        )
+
+    # Dedupe per target: one active regression case per attack id.
+    target_id = scan.target.target_id
+    existing = next(
+        (
+            row
+            for row in repos.regressions.list_active(target_id)
+            if row["attack_case_id"] == finding.attack_id
+        ),
+        None,
     )
+    if existing is not None:
+        return {
+            "status": "already_active",
+            "regression_id": str(existing["regression_id"]),
+            "attack_id": finding.attack_id,
+            "target_id": target_id,
+        }
+
     reg_id = repos.regressions.save_case(
-        target_id=scan.target.target_id,
-        attack_case=stub_case,
-        case_json=finding.model_dump_json(),
+        target_id=target_id,
+        attack_case=catalog_case,
+        case_json=catalog_case.model_dump_json(),
     )
     return {
         "status": "promoted",
         "regression_id": reg_id,
         "attack_id": finding.attack_id,
-        "target_id": scan.target.target_id,
+        "target_id": target_id,
     }
 
 
@@ -74,13 +127,24 @@ def get_finding_transcript(
     finding_id: str,
     repos: Repositories = Depends(get_repositories),
 ) -> dict[str, object]:
-    """Retrieve full transcript messages, timeline trace, and evidence logs for a finding."""
+    """Retrieve full transcript messages, timeline trace, and evidence logs for a finding.
+
+    Everything leaving through this endpoint is redacted at render time
+    (canary token, API keys, PII); raw evidence stays in the database.
+    """
+    from app.application.report.redaction import redact_text
+
     finding = repos.findings.get(finding_id)
     if finding is None or finding.scan_id != scan_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=NotFoundError(f"Finding '{finding_id}' not found.").to_payload(),
         )
+    profile = repos.profiles.get(scan_id)
+    canary = profile.canary_token if profile else ""
+
+    def scrub(value: str) -> str:
+        return redact_text(value, canary)
 
     # Search runs for this finding's attack case
     runs = repos.runs.list_runs(scan_id)
@@ -93,7 +157,18 @@ def get_finding_transcript(
         run_id = target_run["run_id"]
         transcript = repos.runs.get_transcript(run_id)
         if transcript:
-            messages = [m.model_dump() for m in transcript.messages]
+            messages = [
+                {
+                    **m.model_dump(),
+                    "content": scrub(m.content),
+                    **(
+                        {"tool_args_json": scrub(m.tool_args_json)}
+                        if m.tool_args_json
+                        else {}
+                    ),
+                }
+                for m in transcript.messages
+            ]
 
         # Fetch matching verdict
         verdicts = repos.runs.list_verdicts(scan_id)
@@ -119,7 +194,7 @@ def get_finding_transcript(
                 "time_ms": t,
                 "stage": "Attack Prompt Injected",
                 "badge": "warning",
-                "detail": user_msg.get("content", ""),
+                "detail": scrub(str(user_msg.get("content", ""))),
             })
             t += 120
 
@@ -130,7 +205,7 @@ def get_finding_transcript(
                 "time_ms": t,
                 "stage": f"Tool Execution Attempted: {tm.get('tool_name')}",
                 "badge": "breach",
-                "detail": f"Arguments: {tm.get('tool_args_json') or '{}'}",
+                "detail": scrub(f"Arguments: {tm.get('tool_args_json') or '{}'}"),
             })
             t += 80
 
@@ -141,7 +216,7 @@ def get_finding_transcript(
                 "time_ms": t,
                 "stage": "Target Assistant Output",
                 "badge": "info",
-                "detail": asst_msg.get("content", "")[:300],
+                "detail": scrub(str(asst_msg.get("content", "")))[:300],
             })
             t += 60
 

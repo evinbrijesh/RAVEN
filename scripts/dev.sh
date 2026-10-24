@@ -14,6 +14,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 mkdir -p "$ROOT/data"
+export RAVEN_DATABASE_URL="${RAVEN_DATABASE_URL:-sqlite:///$ROOT/data/raven.db}"
 
 (cd "$ROOT/apps/api" && uv run uvicorn app.main:app --reload --host "${RAVEN_API_HOST:-0.0.0.0}" --port "${RAVEN_API_PORT:-8000}") &
 PIDS+=($!)

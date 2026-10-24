@@ -50,18 +50,18 @@ def _report_response(result: ReportResult, fmt: str, download: bool) -> PlainTex
 @router.get("/{scan_id}/report")
 def get_report(
     scan_id: str,
-    format: str = Query(default="json"),
+    report_format: str = Query(default="json", alias="format"),
     download: bool = Query(default=False),
     repos: Repositories = Depends(get_repositories),
 ):
-    if format not in _FORMATS:
+    if report_format not in _FORMATS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
                 "code": "VALIDATION_FAILED",
                 "message": "format must be one of json|markdown|sarif",
                 "retryable": False,
-                "details": {"format": format},
+                "details": {"format": report_format},
             },
         )
     try:
@@ -74,4 +74,4 @@ def get_report(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_payload()
         ) from exc
-    return _report_response(result, format, download)
+    return _report_response(result, report_format, download)

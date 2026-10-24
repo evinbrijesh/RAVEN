@@ -111,6 +111,15 @@ export interface SecurityMetrics {
   benign_success_rate: number | null;
 }
 
+export interface TargetProfile {
+  target_id: string;
+  version: string;
+  system_prompt_hash: string;
+  tools: string[];
+  canary_token: string;
+  notes: string[];
+}
+
 export interface ScanView {
   scan_id: string;
   status: ScanStatus;
@@ -119,6 +128,7 @@ export interface ScanView {
   target_id: string;
   counts: ScanCounts;
   security_metrics: SecurityMetrics;
+  profile?: TargetProfile | null;
 }
 
 /** Item of GET /api/scans (list endpoint). */

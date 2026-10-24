@@ -21,7 +21,6 @@ from app.domain.entities import (
 )
 from app.domain.enums import FindingLabel, RunPhase, TestRunKind
 
-from evaluator.attacks.mutation import mutate_seed
 from evaluator.judges.deterministic import DeterministicJudge, JudgeContext
 from evaluator.judges.resolver import VerdictResolver
 from evaluator.judges.semantic import SemanticJudge
@@ -82,15 +81,28 @@ class SecurityRegressionRunner:
     ) -> dict[str, Any]:
         max_attempts = self._budget.budget.max_attempts_per_attack
         best: dict[str, Any] | None = None
+        prior_bot_response: str | None = None
 
         for attempt in range(1, max_attempts + 1):
             self._budget.consume_attempt(case.id)
-            prompt = case.seed_prompt if attempt == 1 else mutate_seed(case.seed_prompt, attempt)
+            if attempt == 1:
+                prompt = case.seed_prompt
+            else:
+                from evaluator.attacks.mutation import mutate_attack_prompt
+                model_cli = self._semantic_judge._client if self._semantic_judge else None
+                prompt = await mutate_attack_prompt(
+                    seed_prompt=case.seed_prompt,
+                    goal=case.goal,
+                    prior_response=prior_bot_response,
+                    attempt=attempt,
+                    model_client=model_cli,
+                )
             run_id = f"run_{uuid.uuid4().hex[:12]}"
             try:
                 response = await target.invoke(
                     TargetRequest(scan_id=scan_id, run_id=run_id, message=prompt)
                 )
+                prior_bot_response = response.message
             except Exception as exc:  # noqa: BLE001 - target failure: mark not evaluated
                 best = {
                     "result": {

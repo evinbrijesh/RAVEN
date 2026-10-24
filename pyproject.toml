@@ -3,6 +3,10 @@ name = "raven"
 version = "0.1.0"
 description = "RAVEN — bounded, human-supervised security regression system for LLM applications"
 requires-python = ">=3.12"
+dependencies = [
+    "langchain-core>=1.7.0",
+    "langgraph>=1.2.17",
+]
 
 [tool.uv.workspace]
 members = ["apps/api", "workers/evaluator"]

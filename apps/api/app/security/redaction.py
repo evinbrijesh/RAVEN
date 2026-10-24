@@ -12,10 +12,31 @@ import re
 # Patterns are intentionally conservative; extend as new fixture data lands.
 _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("api_key", re.compile(r"(?i)\b(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})")),
+    ("api_key", re.compile(r"\b(?:ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{12,}|xox[bap]-[A-Za-z0-9-]{10,})\b")),
     ("email", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")),
     ("phone", re.compile(r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b")),
     ("card", re.compile(r"\b(?:\d[ -]?){13,16}\b")),
     ("authorization_header", re.compile(r"(?i)authorization:\s*\S+")),
+    ("authorization_header", re.compile(r"(?i)\b(?:x-api-key|x-auth-token|proxy-authorization):\s*\S+")),
+)
+
+# Payload keys whose values must never reach a report artifact, regardless of
+# whether the value matches a value pattern above.
+SENSITIVE_KEYS = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "x-api-key",
+        "authorization",
+        "authorization_header",
+        "proxy-authorization",
+        "token",
+        "access_token",
+        "refresh_token",
+        "secret",
+        "password",
+        "canary_token",
+    }
 )
 
 

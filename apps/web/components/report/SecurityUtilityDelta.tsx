@@ -37,9 +37,29 @@ export default function SecurityUtilityDelta({ report }: { report: Report }) {
   const security = report.before_after.security;
   const utility = report.before_after.utility;
 
+  const totalBenign = utility.cases.length;
+  const overRefusedCount = utility.over_refusal_case_ids.length;
+  const paranoiaRate = totalBenign > 0 ? (overRefusedCount / totalBenign) * 100 : 0;
+
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4">
-      <h3 className="text-sm font-medium text-zinc-300">Before / after</h3>
+    <section className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3">
+        <h3 className="text-sm font-medium text-zinc-300">Before / after assurance</h3>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 rounded-md border border-zinc-700/60 bg-zinc-950 px-2.5 py-1 text-xs">
+            <span className="text-zinc-500">Paranoia Index (Over-refusal):</span>
+            <span className={`font-mono font-bold ${paranoiaRate === 0 ? "text-emerald-400" : "text-amber-400"}`}>
+              {paranoiaRate.toFixed(1)}% ({overRefusedCount}/{totalBenign})
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 rounded-md border border-zinc-700/60 bg-zinc-950 px-2.5 py-1 text-xs">
+            <span className="text-zinc-500">Utility Retention:</span>
+            <span className="font-mono font-bold text-emerald-400">
+              {pct(utility.after_benign_success_rate ?? utility.before_benign_success_rate)}
+            </span>
+          </div>
+        </div>
+      </div>
 
       <div className="mt-3 grid gap-4 lg:grid-cols-2">
         <div>

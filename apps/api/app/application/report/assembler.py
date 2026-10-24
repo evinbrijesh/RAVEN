@@ -208,6 +208,7 @@ def _decide_verdict(
     semantic_available: bool,
     security: ReportSecurityMetrics,
     utility: ReportUtilityMetrics,
+    regression_detected: bool = False,
 ) -> ReportVerdict:
     """Verdict rules in the fixed ADR 0001 order."""
     utility_regressed = (
@@ -229,9 +230,10 @@ def _decide_verdict(
         if counts.confirmed_failure + counts.likely_failure > 0:
             return ReportVerdict.CONFIRMED_VULNERABLE
         return ReportVerdict.INCONCLUSIVE
-    # 3b. Retest ran: any residual attack success is confirmed vulnerable.
+    # 3b. Retest ran: any residual attack success (or a detected regression)
+    #     is confirmed vulnerable.
     after_rate = security.after_attack_success_rate
-    if after_rate is not None and after_rate > 0:
+    if (after_rate is not None and after_rate > 0) or regression_detected:
         return ReportVerdict.CONFIRMED_VULNERABLE
     before_rate = security.before_attack_success_rate
     if before_rate is None or after_rate is None:
@@ -239,7 +241,10 @@ def _decide_verdict(
     # 4. Improved: success dropped and benign utility held.
     if before_rate > 0 and after_rate < before_rate and not utility_regressed:
         return ReportVerdict.IMPROVED
-    # 5. Default: nothing confirmed under the stated checks.
+    # 5. Default: nothing confirmed under the stated checks — but only when
+    #    every selected case was actually evaluated (never a false clean).
+    if counts.not_evaluated > 0:
+        return ReportVerdict.INCONCLUSIVE
     return ReportVerdict.NO_CONFIRMED_FINDINGS
 
 
@@ -681,6 +686,10 @@ def assemble(bundle: EvidenceBundle) -> ReportDocument:
     )
 
     # --- summary ------------------------------------------------------------
+    regression_detected = any(
+        r.get("label") == FindingLabel.REGRESSION_DETECTED.value
+        for r in [*before_results, *after_results]
+    )
     verdict = _decide_verdict(
         scan.status,
         bundle.before_run,
@@ -690,6 +699,7 @@ def assemble(bundle: EvidenceBundle) -> ReportDocument:
         judge.semantic_available,
         security,
         utility,
+        regression_detected,
     )
     headline = _headline(
         verdict, security, utility, counts, scan.status, bundle.after_run,

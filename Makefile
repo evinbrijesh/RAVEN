@@ -39,4 +39,4 @@ lint:
 	cd $(WEB_DIR) && npx tsc --noEmit
 
 clean:
-	rm -rf $(API_DIR)/.pytest_cache $(WORKER_DIR)/.pytest_cache data/*.sqlite*
+	rm -rf $(API_DIR)/.pytest_cache $(WORKER_DIR)/.pytest_cache data/*.sqlite* data/*.db* $(API_DIR)/data/*.db* $(WORKER_DIR)/data/*.db*

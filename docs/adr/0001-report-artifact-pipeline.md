@@ -216,53 +216,57 @@ Costs / risks:
 - SARIF upload action / GitHub App integration.
 - Server-side PDF generation.
 
-## Implementation status (2026-10-25)
+## Implementation status (2026-10-25, updated after implementation)
 
-The contract (v1.0) and this ADR are the target. Work in progress in the
-workspace does not yet satisfy them:
+The contract (v1.0) and this ADR are implemented. Status per area:
 
-| Area | Current state | Required before merge |
-|---|---|---|
-| Wire version | `generate_report.py` still emits `0.1` | Replace with `ReportDocument` v1.0; web types in the same change |
-| Report pipeline | Single `generate_report.py`; no collector/assembler/renderer split | Create `application/report/` package per pipeline above |
-| SARIF | `report_to_sarif()` in `generate_report.py`; per-attack rules, no fingerprints, no `run.properties` | Move to `renderers/sarif.py`; use category rules, stable fingerprints, redaction |
-| Evidence | No transcripts/profile/verdicts in report | Collector must read `attack_runs`, `transcripts`, `verdicts`, `target_profiles` |
-| Utility baseline | Only after-hardening run exists | Add `UTILITY_BEFORE` and record it before hardening |
-| Worker metadata | `test_runs.results` lacks category/goal/references/prompt | Enrich security and utility result entries |
-| Artifact integrity | No hash, duplicates on every request | `report_artifacts` hash + idempotent write |
-| Regression promotion | `POST /findings/{id}/promote-regression` saves a stub finding JSON | Persist the real catalog `AttackCase`; validate label; dedupe |
-| SSRF helper | `security/ssrf.py` validates URL but not redirects/rebinding | HTTP adapter must re-check on every hop and pin resolution |
-| Regression-only mode | Selected from the first `max_attack_cases` slice before filtering | Select full catalog, filter active regressions, then cap |
+| Area | State |
+|---|---|
+| Wire version | **Done.** `app/domain/report.py` (Pydantic, authoritative) + `packages/contracts/report.schema.json` v1.0; legacy `generate_report.py` deleted |
+| Report pipeline | **Done.** `application/report/`: `collector.py`, `assembler.py`, `redaction.py`, `service.py`, `renderers/{json,markdown,sarif}.py` |
+| SARIF | **Done.** Category rules (`RAVEN/LLM0x-*`), stable fingerprints `sha256(target:attack:category:rule)`, actionable-label filter, `run.properties` counts, `application/sarif+json` |
+| Evidence | **Done.** Collector reads scans, profiles, runs, transcripts, verdicts, findings, proposals, approvals, test runs; findings carry `evidence_complete` |
+| Utility baseline | **Done.** `TestRunKind.UTILITY_BEFORE` persisted before hardening; over-refusal delta in `before_after.utility` |
+| Worker metadata | **Done.** Security/utility results carry `attack_id/category/goal/success_rule/references/version/severity` and benign case metadata |
+| Artifact integrity | **Done.** SHA-256 over canonical body (excl. `report_id`/`generated_at`/`integrity`), idempotent `report_artifacts` writes, `X-RAVEN-*` headers, `download=true` disposition |
+| Regression promotion | **Done.** Scan-scoped lookup, label restriction (`confirmed_failure`/`likely_failure`/`needs_review`), real catalog `AttackCase`, per-target dedupe (`app/application/catalog.py`) |
+| Regression-only mode | **Done.** Full catalog → filter active regressions → cap by budget; empty selection runs zero cases; retest honors the mode |
+| SSRF helper | **Open (B8).** `security/ssrf.py` still lacks redirect/DNS-rebinding protection; blocked on the HTTP target adapter (deferred MVP scope) |
+
+Remaining known gaps (non-blocking, tracked): per-scan token totals are not
+persisted (`model_usage` token fields are `null`); model-call records are not
+persisted as rows; SARIF `invocations.executionSuccessful` is derived from scan
+status only.
 
 Implementation is owned by Engineer. The contract must not change without a
 new ADR.
 
 ## Review gate (2026-10-25)
 
-The current working tree is **not mergeable**. Blockers from the architecture
-review:
+Resolution of the architecture-review blockers:
 
-1. **B1 — Contract mismatch.** API still emits v0.1; none of the required v1.0
-   sections exist. `report.schema.json` validation fails.
-2. **B2 — Canary leak.** `prompt_diff` in the persisted JSON report contains
-   the fixture canary; no report-time redaction or truncation exists.
-3. **B3 — No artifact integrity.** No `report_id`, SHA-256, hash columns,
-   idempotent write, download headers, or content-type handling.
-4. **B4 — SARIF non-compliance.** Per-attack rules, no fingerprints, no
-   actionable filter, fake location, no run properties/invocations, no
-   redaction, wrong media type.
-5. **B5 — Regression promotion unsafe.** Cross-scan finding lookup, no label
-   validation, stub `AttackCase`, wrong `case_json`, no dedupe, no audit.
-6. **B6 — Regression-only mode false clean.** Budget slice applied before
-   filtering; empty selection can complete clean; fallback runs arbitrary
-   attacks; retest ignores the mode.
-7. **B7 — Missing persistence prerequisites.** No `UTILITY_BEFORE`, no
-   `completed_at`, no transcript/latest test-run accessors, worker result rows
-   lack case metadata, model-call records are not persisted.
-8. **B8 — SSRF helper unsafe to integrate.** No redirect/DNS-rebinding
-   protection, incomplete range checks, dev bypass unguarded, consent helper
-   unused.
+1. **B1 — Contract mismatch.** **Closed.** v1.0 emitted by the new pipeline;
+   API tests validate the document structure and Pydantic revalidation.
+2. **B2 — Canary leak.** **Closed.** `redaction.py` walks the full payload,
+   replaces the scan's canary token and PII/secret patterns, drops raw
+   `canary_token` keys, truncates transcripts (4000/message, 12000/bundle);
+   end-to-end redaction test green for all three formats.
+3. **B3 — No artifact integrity.** **Closed.** Hash + idempotent artifacts +
+   headers + download disposition; idempotency test green.
+4. **B4 — SARIF non-compliance.** **Closed.** Category rules, fingerprints,
+   actionable filter, `raven://` locations, `run.properties`, correct media
+   type; structural tests green.
+5. **B5 — Regression promotion unsafe.** **Closed.** See implementation table;
+   six failure-path tests green.
+6. **B6 — Regression-only mode false clean.** **Closed.** Fail-closed
+   selection with worker tests; empty selection runs zero cases and the
+   assembler marks such scans `inconclusive`.
+7. **B7 — Missing persistence prerequisites.** **Closed.** `UTILITY_BEFORE`,
+   `completed_at`, verdict LLM metadata, transcript/latest-run accessors,
+   enriched worker results; additive SQLite migrations in `sqlite.py`.
+8. **B8 — SSRF helper unsafe to integrate.** **Open, out of MVP path.** The
+   HTTP target adapter is deferred; the helper is not wired into any request
+   path. Must be closed before any non-fixture target is enabled.
 
-Minimum merge gate: B1–B8 closed, v1.0 schema validation test green, redaction
-tests green, SARIF structural tests green, regression/SSRF failure-path tests
-green, and `make test` + `make lint` pass.
+Merge gate status: `make test` (56 API + 30 worker tests) and `make lint`
+(ruff ×2 + tsc) pass; web `next build` passes.

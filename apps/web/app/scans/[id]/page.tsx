@@ -2,9 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
 import { AgentConstellation, AgentTrace, type AgentStatus, type AgentId, type TraceStep } from "@/components/ui/AgentConstellation";
 import { LabelChip, CategoryChip, PartialFailureBanner } from "@/components/ui/primitives";
+import ReconProfileCard from "@/components/scan/ReconProfileCard";
+import { getScan } from "@/lib/api-client";
+import type { TargetProfile } from "@/lib/types";
 
 /* ─── Phase stepper ──────────────────────────────────────────────────────── */
 const PHASES = ["Recon", "Attack", "Judge", "Hardening", "Approval", "Retest", "Report"] as const;
@@ -201,8 +205,39 @@ function AgentDrawer({ agentId, onClose }: { agentId: AgentId; onClose: () => vo
 
 /* ─── Main screen ─────────────────────────────────────────────────────────── */
 export default function LiveScanPage() {
+  const params = useParams<{ id: string }>();
+  const scanId = (params?.id as string) || "scan_123";
   const [traceAgent, setTraceAgent] = useState<AgentId | null>(null);
+  const [profile, setProfile] = useState<TargetProfile | null>(null);
   const feedRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadScanProfile() {
+      try {
+        const scan = await getScan(scanId);
+        if (mounted && scan.profile) {
+          setProfile(scan.profile);
+        }
+      } catch {
+        // Fallback for demo scan_123 preview
+        if (mounted) {
+          setProfile({
+            target_id: "shophelper-local",
+            version: "v1.2-sandbox",
+            system_prompt_hash: "3a8f9c1b7e4d2085fe7b6d194c5029a738491c2b5d6e7f8a90123456789abcdef",
+            tools: ["lookup_order", "check_inventory", "issue_refund"],
+            canary_token: "RAVEN-CANARY-DEMO",
+            notes: ["Isolated ShopHelper fixture runtime", "Deterministic refund amount validation active"],
+          });
+        }
+      }
+    }
+    void loadScanProfile();
+    return () => {
+      mounted = false;
+    };
+  }, [scanId]);
 
   // Auto-scroll feed
   useEffect(() => {
@@ -214,7 +249,7 @@ export default function LiveScanPage() {
   return (
     <div className="flex flex-col">
       <TopBar
-        breadcrumbs={[{ label: "Scans", href: "/scans" }, { label: "scan_123" }]}
+        breadcrumbs={[{ label: "Scans", href: "/scans" }, { label: scanId }]}
         scanStatus="attacking"
       />
 
@@ -227,6 +262,11 @@ export default function LiveScanPage() {
         {/* Phase stepper */}
         <section aria-label="Scan phases">
           <PhaseStepper current="Attack" />
+        </section>
+
+        {/* Target Recon Profile Inspector */}
+        <section aria-label="Target recon profile">
+          <ReconProfileCard profile={profile} targetId="shophelper-local" />
         </section>
 
         {/* Hero: Agent Constellation */}

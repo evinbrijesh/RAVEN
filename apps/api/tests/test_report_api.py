@@ -288,12 +288,24 @@ def test_report_artifact_idempotent_by_hash(client: TestClient) -> None:
     assert (
         first.headers["X-RAVEN-Report-Artifact"] == second.headers["X-RAVEN-Report-Artifact"]
     )
+    # Deterministic identity: the served body must equal the stored artifact.
     repos = client.app.state.repos
     artifacts = repos.db.query_all(
         "SELECT * FROM report_artifacts WHERE scan_id = ? AND format = 'json'",
         (scan_id,),
     )
     assert len(artifacts) == 1
+    assert artifacts[0]["content"] == first.text
+
+    # All three formats dedupe too (deterministic report_id/generated_at).
+    for fmt in ("markdown", "sarif"):
+        client.get(f"/api/scans/{scan_id}/report?format={fmt}")
+        client.get(f"/api/scans/{scan_id}/report?format={fmt}")
+        rows = repos.db.query_all(
+            "SELECT * FROM report_artifacts WHERE scan_id = ? AND format = ?",
+            (scan_id, fmt),
+        )
+        assert len(rows) == 1, f"{fmt} artifacts must dedupe by content hash"
 
 
 def test_report_redacts_canary_end_to_end(client: TestClient) -> None:

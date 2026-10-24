@@ -5,6 +5,9 @@ description = "RAVEN evaluation worker: state machine, targets, judges, hardenin
 requires-python = ">=3.12"
 dependencies = ["raven-api"]
 
+[project.scripts]
+raven-test = "evaluator.cli:main"
+
 [tool.uv.sources]
 raven-api = { workspace = true }
 

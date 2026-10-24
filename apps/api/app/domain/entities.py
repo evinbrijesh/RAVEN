@@ -84,6 +84,7 @@ class ScanView(BaseModel):
     target_id: str
     counts: ScanCounts = Field(default_factory=ScanCounts)
     security_metrics: SecurityMetrics = Field(default_factory=SecurityMetrics)
+    profile: TargetProfile | None = None
 
 
 class AttackCase(BaseModel):
@@ -234,6 +235,7 @@ class TargetProfile(BaseModel):
     system_prompt_hash: str
     tools: list[str] = Field(default_factory=list)
     canary_token: str = ""
+    refusal_behavior: str = "standard"
     notes: list[str] = Field(default_factory=list)
 
 

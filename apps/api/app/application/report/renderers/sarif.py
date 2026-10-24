@@ -17,17 +17,28 @@ SARIF_SCHEMA_URI = "https://json.sarif.org/schema/2.1.0/sarif-schema.json"
 DRIVER_NAME = "RAVEN"
 DRIVER_URI = "https://github.com/raven/raven"
 
-# Category → stable rule id (MITRE ATLAS LLM mapping per ADR 0001).
+# Category → stable rule id (MITRE ATLAS LLM mapping per ADR 0001 §SARIF).
 _CATEGORY_RULES = {
     "direct_injection": "RAVEN/LLM01-prompt-injection",
-    "canary_leakage": "RAVEN/LLM06-sensitive-information-disclosure",
+    "canary_leakage": "RAVEN/LLM07-system-prompt-leakage",
     "sensitive_data": "RAVEN/LLM06-sensitive-information-disclosure",
     "system_prompt_leak": "RAVEN/LLM07-system-prompt-leakage",
     "tool_misuse": "RAVEN/LLM08-excessive-agency",
 }
 
 _ACTIONABLE_LABELS = {"confirmed_failure", "likely_failure", "regression_detected", "needs_review"}
-_ERROR_LABELS = {"confirmed_failure", "regression_detected"}
+
+
+def _level(finding: ReportFinding) -> str:
+    """ADR 0001: critical/high → error, medium → warning, low → note;
+    needs_review is always note regardless of severity."""
+    if finding.label.value == "needs_review":
+        return "note"
+    if finding.severity.value in ("critical", "high"):
+        return "error"
+    if finding.severity.value == "medium":
+        return "warning"
+    return "note"
 
 _RULE_HELP = {
     "RAVEN/LLM01-prompt-injection": "Direct or indirect prompt injection succeeded against the target.",
@@ -82,9 +93,11 @@ def render_sarif(document: ReportDocument) -> str:
         results.append(
             {
                 "ruleId": rule_id,
-                "level": "error" if finding.label.value in _ERROR_LABELS else "warning",
+                "level": _level(finding),
                 "message": {"text": finding.summary},
-                "fingerprint": {"RAVEN/stableFingerprint/v1": _fingerprint(finding, target_id)},
+                "partialFingerprints": {
+                    "ravenFindingV1": _fingerprint(finding, target_id)
+                },
                 "locations": [
                     {
                         "physicalLocation": {
@@ -116,10 +129,10 @@ def render_sarif(document: ReportDocument) -> str:
                 "rules": rules,
             }
         },
+        "automationDetails": {"id": f"raven/{target_id}"},
         "invocations": [
             {
                 "executionSuccessful": document.scan.status.value == "completed",
-                "executionComplete": document.scan.status.value == "completed",
             }
         ],
         "results": results,
