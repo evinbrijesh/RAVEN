@@ -1,0 +1,48 @@
+# RAVEN unified backend (FastAPI control plane + Evaluation Worker in one container).
+# Ideal for single-container cloud hosting (Railway, Render, Fly.io, GCP Cloud Run)
+# where both services share a persistent volume mounted at /data.
+#
+# Build context is the REPO ROOT:
+#   docker build -f infra/Dockerfile.backend -t raven-backend .
+
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+
+# 1. Copy workspace manifests first for layer caching
+COPY pyproject.toml ./pyproject.toml
+COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
+COPY workers/evaluator/pyproject.toml ./workers/evaluator/pyproject.toml
+
+# 2. Pre-fetch third-party dependencies for both workspace members
+RUN uv sync --directory apps/api --no-install-workspace --no-dev && \
+    uv sync --directory workers/evaluator --no-install-workspace --no-dev
+
+# 3. Copy application source code, attack catalog, and fixtures
+COPY apps/api/app ./apps/api/app
+COPY apps/api/migrations ./apps/api/migrations
+COPY workers/evaluator/evaluator ./workers/evaluator/evaluator
+COPY packages/attack-catalog ./packages/attack-catalog
+COPY fixtures ./fixtures
+COPY infra/start-backend.sh /app/start-backend.sh
+
+# 4. Install workspace packages in editable mode
+RUN uv sync --directory apps/api --no-dev && \
+    uv sync --directory workers/evaluator --no-dev
+
+# 5. Make startup script executable and set PATH
+RUN chmod +x /app/start-backend.sh
+ENV PATH="/app/.venv/bin:${PATH}"
+
+# Default port
+EXPOSE 8000
+
+# Volume target for persistent SQLite and evidence
+VOLUME ["/data"]
+
+CMD ["/app/start-backend.sh"]
