@@ -135,17 +135,17 @@ export default function ReportView({ scanId }: { scanId: string }) {
 
       <div className="space-y-4 p-4 text-sm">
         <div className="grid gap-3 sm:grid-cols-3">
-          <Fact label="Target" value={`${report.target.id} (${report.target.version})`} />
+          <Fact label="Target" value={`${report.scan.target.id} (${report.scan.target.version})`} />
           <Fact
             label="Coverage"
-            value={`${report.coverage.attack_cases} cases · ${report.coverage.categories} categories`}
+            value={`${report.coverage.attack_cases} cases · ${report.coverage.categories.length} categories`}
           />
           <Fact
             label="Hardening approved"
             value={
-              report.hardening.approved === null
+              !report.hardening.approval
                 ? "—"
-                : report.hardening.approved
+                : report.hardening.approval.approved
                   ? "yes"
                   : "no"
             }

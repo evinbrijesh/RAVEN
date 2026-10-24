@@ -196,12 +196,21 @@ export interface ApproveHardeningResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Report
+// Report (canonical wire contract v1.0 — packages/contracts/report.schema.json)
 // ---------------------------------------------------------------------------
 
-export interface ReportCoverage {
-  attack_cases: number;
-  categories: number;
+export const REPORT_VERDICTS = [
+  "improved",
+  "confirmed_vulnerable",
+  "no_confirmed_findings",
+  "inconclusive",
+  "partial",
+] as const;
+export type ReportVerdict = (typeof REPORT_VERDICTS)[number];
+
+export interface ReportGenerator {
+  name: "raven";
+  version: string;
 }
 
 export interface ReportTarget {
@@ -209,18 +218,250 @@ export interface ReportTarget {
   version: string;
 }
 
-export interface Report {
-  schema_version: string;
+export interface ReportProfile {
+  tools: string[];
+  canary_present: boolean;
+  system_prompt_hash: string;
+  notes: string[];
+}
+
+export interface ReportScan {
   scan_id: string;
+  status: ScanStatus;
+  created_at: string;
+  completed_at: string | null;
   target: ReportTarget;
-  coverage: ReportCoverage;
-  findings: unknown[];
-  hardening: { proposal: unknown; approved: boolean | null };
-  before_after: Record<string, unknown>;
-  benign_regression: Record<string, unknown>;
-  limitations: string[];
-  tool_versions: Record<string, unknown>;
+  config: ScanConfig;
+  profile: ReportProfile | null;
+}
+
+export interface ReportCounts {
+  attack_cases: number;
+  evaluated: number;
+  not_evaluated: number;
+  confirmed_failure: number;
+  likely_failure: number;
+  attack_blocked: number;
+  needs_review: number;
+  benign_cases: number;
+  benign_passed: number;
+  regressions: number;
+}
+
+export interface ReportJudgeInfo {
+  deterministic_available: boolean;
+  semantic_available: boolean;
+  disagreements: number;
+  model_name: string | null;
+  prompt_version: string | null;
+}
+
+export interface ReportSummary {
+  verdict: ReportVerdict;
+  headline: string;
+  counts: ReportCounts;
+  judge: ReportJudgeInfo;
+}
+
+export interface ReportCoverage {
+  attack_cases: number;
+  categories: AttackCategory[];
+  benign_cases: number;
+  attack_catalog_version: string;
+  benign_catalog_version: string;
+}
+
+export interface ReportAttackMeta {
+  goal: string;
+  success_rule: string;
+  seed_prompt_redacted: string;
+  references: string[];
+  version: string;
+}
+
+export interface ReportDeterministic {
+  label: FindingLabel | null;
+  signals: string[];
+}
+
+export interface ReportSemantic {
+  label: FindingLabel | null;
+  confidence: number | null;
+  reason: string | null;
+  model_name: string | null;
+  prompt_version: string | null;
+  available: boolean;
+}
+
+export interface ReportRunRef {
+  run_id: string;
+  attempt: number;
+  phase: "before" | "after";
+  status: string;
+}
+
+export interface ReportEvidenceRef {
+  ref_id: string;
+  kind: string;
+  description: string;
+}
+
+export interface ReportTranscriptMessage {
+  role: string;
+  content: string;
+  tool_name?: string | null;
+  tool_args_json?: string | null;
+}
+
+export interface ReportTranscript {
+  transcript_id: string;
+  messages: ReportTranscriptMessage[];
+  truncated: boolean;
+}
+
+export type ReportEvidenceKind =
+  | "run"
+  | "transcript"
+  | "rule_check"
+  | "model_call"
+  | "approval"
+  | "test_run";
+
+export interface ReportEvidence {
+  ref_id: string;
+  kind: ReportEvidenceKind;
+  description: string;
+  run_id?: string | null;
+  attempt?: number | null;
+  phase?: "before" | "after" | null;
+  transcript?: ReportTranscript | null;
+}
+
+export interface ReportPolicyCandidate {
+  tool: string;
+  conditions: string[];
+  high_value_action: string;
+  on_violation: string;
+}
+
+export interface ReportProposal {
+  proposal_id: string;
+  scan_id: string;
+  prompt_diff: string;
+  policy_candidate: ReportPolicyCandidate | null;
+  rationale: string;
+  affected_cases: string[];
+  risks: string[];
+  created_at: string;
+}
+
+export interface ReportApproval {
+  approved: boolean;
+  approved_by: string;
+  created_at: string;
+}
+
+export interface ReportHardening {
+  proposal: ReportProposal | null;
+  approval: ReportApproval | null;
+  applied_to: "temporary_target" | "not_applied";
+}
+
+export interface CategoryMetric {
+  category: AttackCategory;
+  before_success_rate: number | null;
+  after_success_rate: number | null;
+  delta: number | null;
+}
+
+export interface ReportSecurityMetrics {
+  before_attack_success_rate: number | null;
+  after_attack_success_rate: number | null;
+  delta: number | null;
+  before_blocked_rate: number | null;
+  after_blocked_rate: number | null;
+  per_category: CategoryMetric[];
+}
+
+export interface ReportUtilityCase {
+  case_id: string;
+  goal: string;
+  prompt_redacted: string;
+  expected: string;
+  passed_before: boolean | null;
+  passed_after: boolean | null;
+  over_refusal: boolean;
+}
+
+export interface ReportUtilityMetrics {
+  before_benign_success_rate: number | null;
+  after_benign_success_rate: number | null;
+  delta: number | null;
+  cases: ReportUtilityCase[];
+  over_refusal_case_ids: string[];
+}
+
+export interface ReportBeforeAfter {
+  security: ReportSecurityMetrics;
+  utility: ReportUtilityMetrics;
+}
+
+export interface ReportModelUsage {
+  semantic_judge_available: boolean;
+  model_name: string | null;
+  prompt_version: string | null;
+  calls: number;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  duration_ms: number | null;
+}
+
+export interface ReportRedaction {
+  applied: boolean;
+  transcript_excerpt_chars: number;
+  redacted_fields: string[];
+}
+
+export interface ReportIntegrity {
+  content_sha256: string;
+  source: "persisted_evidence_only";
+}
+
+export interface ReportFinding {
+  finding_id: string;
+  attack_id: string;
+  category: AttackCategory;
+  severity: Severity;
+  label: FindingLabel;
+  confidence: number;
+  needs_review: boolean;
+  summary: string;
+  attack: ReportAttackMeta | null;
+  deterministic: ReportDeterministic | null;
+  semantic: ReportSemantic;
+  resolution: string | null;
+  evidence_refs: ReportEvidenceRef[];
+  run: ReportRunRef | null;
+  evidence_complete: boolean;
+}
+
+export interface Report {
+  schema_version: "1.0";
+  report_id: string;
   generated_at: string;
+  generator: ReportGenerator;
+  scan: ReportScan;
+  summary: ReportSummary;
+  coverage: ReportCoverage;
+  findings: ReportFinding[];
+  hardening: ReportHardening;
+  before_after: ReportBeforeAfter;
+  evidence: ReportEvidence[];
+  model_usage: ReportModelUsage;
+  tool_versions: Record<string, string>;
+  redaction: ReportRedaction;
+  limitations: string[];
+  integrity: ReportIntegrity;
 }
 
 // ---------------------------------------------------------------------------

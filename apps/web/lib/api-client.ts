@@ -159,9 +159,18 @@ export function getFindingTranscript(
   );
 }
 
+export type ReportFormat = "json" | "markdown" | "sarif";
+
+const REPORT_EXTENSIONS: Record<ReportFormat, string> = {
+  json: "json",
+  markdown: "md",
+  sarif: "sarif",
+};
+
+/** Fetch a report as parsed data (json/sarif) or text (markdown). */
 export async function getReport(
   scanId: string,
-  format: "json" | "markdown" | "sarif",
+  format: ReportFormat,
 ): Promise<Report | Record<string, unknown> | string> {
   const path = `/api/scans/${encodeURIComponent(scanId)}/report?format=${format}`;
   if (format === "markdown") {
@@ -181,4 +190,30 @@ export async function getReport(
     return (await response.text()) as string;
   }
   return request<Report | Record<string, unknown>>(path);
+}
+
+/** Fetch a report artifact as raw text for download (server sets the filename). */
+export async function getReportText(
+  scanId: string,
+  format: ReportFormat,
+): Promise<string> {
+  const path = `/api/scans/${encodeURIComponent(scanId)}/report?format=${format}&download=true`;
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store" });
+  } catch (cause) {
+    throw new ApiRequestError(
+      0,
+      "NETWORK_ERROR",
+      `Cannot reach RAVEN API at ${API_BASE_URL}. Is it running?`,
+      true,
+      { cause },
+    );
+  }
+  if (!response.ok) throw await toApiError(response);
+  return (await response.text()) as string;
+}
+
+export function reportFilename(scanId: string, format: ReportFormat): string {
+  return `raven-${scanId}-report.${REPORT_EXTENSIONS[format]}`;
 }
