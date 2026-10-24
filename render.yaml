@@ -1,0 +1,33 @@
+services:
+  # RAVEN Unified Backend (FastAPI Control Plane + Evaluation Worker Daemon)
+  - type: web
+    name: raven-backend
+    runtime: docker
+    dockerfilePath: infra/Dockerfile.backend
+    dockerContext: .
+    plan: starter # Or free (note: free tier does not support persistent disks)
+    region: oregon # or frankfurt / ohio / singapore
+    healthCheckPath: /health
+    disk:
+      name: raven-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: RAVEN_ENV
+        value: production
+      - key: RAVEN_DATABASE_URL
+        value: sqlite:////data/raven.db
+      - key: RAVEN_EVIDENCE_DIR
+        value: /data/evidence
+      - key: RAVEN_MODEL_PROVIDER
+        value: openrouter
+      - key: RAVEN_MODEL_NAME
+        value: nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+      - key: RAVEN_MODEL_BASE_URL
+        value: https://openrouter.ai/api/v1
+      - key: RAVEN_MODEL_API_KEY
+        sync: false # Set securely in Render dashboard
+      - key: RAVEN_CORS_ORIGINS
+        value: '["https://*.vercel.app","http://localhost:3000"]'
+      - key: PORT
+        value: "8000"
