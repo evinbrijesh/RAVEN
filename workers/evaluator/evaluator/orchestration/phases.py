@@ -41,7 +41,7 @@ from evaluator.orchestration.budgets import BudgetTracker
 from evaluator.orchestration.state_machine import transition
 from evaluator.regression.security_runner import SecurityRegressionRunner
 from evaluator.regression.utility_runner import UtilityRegressionRunner
-from evaluator.targets.shophelper import ShopHelperLocalAdapter
+from evaluator.targets.factory import build_target
 
 SEVERITY_ORDER = {
     Severity.CRITICAL: 0,
@@ -67,21 +67,15 @@ class ScanEngine:
         )
         self._model_name = settings.model_name
 
-    def _create_target(self, target_id: str):
-        if target_id.startswith("http://") or target_id.startswith("https://"):
-            from evaluator.targets.http_adapter import HttpTargetAdapter
-            return HttpTargetAdapter(
-                endpoint_url=target_id,
-                headers={"X-Raven-Scan-Consent": "true"},
-            )
-        return ShopHelperLocalAdapter(self._fixtures_path or None)
+    def _create_target(self, scan):
+        return build_target(scan, self._fixtures_path)
 
     async def run(self, scan_id: str) -> None:
         scan = self._repos.scans.get(scan_id)
         if scan is None:
             raise RavenError(f"Scan '{scan_id}' not found.")
         budget = BudgetTracker(budget=scan.config.budget)
-        target = self._create_target(scan.target.target_id)
+        target = self._create_target(scan)
 
         try:
             profile = await self._phase_recon(scan_id, target, budget)
@@ -108,7 +102,7 @@ class ScanEngine:
             raise RavenError("No proposal to retest.")
 
         budget = BudgetTracker(budget=scan.config.budget)
-        target = self._create_target(scan.target.target_id)
+        target = self._create_target(scan)
         try:
             self._set_status(scan_id, ScanStatus.RETESTING, 0.8)
             self._emit(scan_id, EventKind.RETEST_STARTED, {"proposal_id": proposal.proposal_id})
@@ -218,7 +212,7 @@ class ScanEngine:
                 from evaluator.judges.weakness import derive_weak_point
 
                 sys_prompt = ""
-                if isinstance(target, ShopHelperLocalAdapter):
+                if hasattr(target, "fixtures_path"):
                     sys_prompt = (target.fixtures_path / "system-prompt.txt").read_text(encoding="utf-8")
 
                 weak_pt = derive_weak_point(
@@ -227,8 +221,11 @@ class ScanEngine:
                     transcript=transcript,
                     system_prompt=sys_prompt,
                 )
+                import hashlib
+
+                finding_key = hashlib.sha256(f"{scan_id}:{case.id}".encode("utf-8")).hexdigest()[:12]
                 finding = Finding(
-                    finding_id=f"find_{uuid.uuid4().hex[:12]}",
+                    finding_id=f"find_{finding_key}",
                     scan_id=scan_id,
                     attack_id=case.id,
                     category=case.category,
@@ -253,23 +250,33 @@ class ScanEngine:
         self._set_status(scan_id, ScanStatus.HARDENING_PROPOSED, 0.7)
         scan = self._repos.scans.get(scan_id)
         assert scan is not None
-        target = ShopHelperLocalAdapter(self._fixtures_path or None)
+        target = self._create_target(scan)
         await target.profile()
-        original_prompt = (target.fixtures_path / "system-prompt.txt").read_text(encoding="utf-8")
+        original_prompt = ""
+        if hasattr(target, "fixtures_path"):
+            original_prompt = (target.fixtures_path / "system-prompt.txt").read_text(encoding="utf-8")
+        else:
+            original_prompt = "You are a customer assistant endpoint."
 
         hardener = PromptHardener()
         _hardened_prompt, diff = hardener.propose(original_prompt)
         compiler = PolicyCompiler()
         candidate = compiler.compile(findings)
-        orig_policy = json.loads((target.fixtures_path / "vulnerable-policy.json").read_text(encoding="utf-8"))
+        orig_policy = {}
+        if hasattr(target, "fixtures_path"):
+            orig_policy = json.loads((target.fixtures_path / "vulnerable-policy.json").read_text(encoding="utf-8"))
         p_diff = compiler.diff(orig_policy, candidate)
 
-        proposal = HardeningProposal(
-            proposal_id=f"fix_{uuid.uuid4().hex[:12]}",
-            scan_id=scan_id,
-            prompt_diff=diff,
-            policy_diff=p_diff,
-            policy_candidate=candidate,
+        existing_proposal = self._repos.proposals.latest_for_scan(scan_id)
+        if existing_proposal is not None:
+            proposal = existing_proposal
+        else:
+            proposal = HardeningProposal(
+                proposal_id=f"fix_{uuid.uuid4().hex[:12]}",
+                scan_id=scan_id,
+                prompt_diff=diff,
+                policy_diff=p_diff,
+                policy_candidate=candidate,
             rationale=(
                 "Multi-layer defense-in-depth: prompt refusal hardening paired with "
                 "strict deterministic policy gateway constraints on tool execution."

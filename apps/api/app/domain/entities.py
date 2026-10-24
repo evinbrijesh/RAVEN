@@ -218,6 +218,8 @@ class Approval(BaseModel):
     scan_id: str
     approved: bool
     approved_by: str
+    proposal_hash: str = ""
+    decision: str = "approved"  # "approved" | "rejected"
     created_at: datetime = Field(default_factory=utc_now)
 
 

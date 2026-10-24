@@ -110,12 +110,14 @@ CREATE TABLE IF NOT EXISTS policy_candidates (
 );
 
 CREATE TABLE IF NOT EXISTS approvals (
-    approval_id TEXT PRIMARY KEY,
-    proposal_id TEXT NOT NULL,
-    scan_id     TEXT NOT NULL,
-    approved    INTEGER NOT NULL,
-    approved_by TEXT NOT NULL,
-    created_at  TEXT NOT NULL
+    approval_id   TEXT PRIMARY KEY,
+    proposal_id   TEXT NOT NULL,
+    scan_id       TEXT NOT NULL,
+    approved      INTEGER NOT NULL,
+    approved_by   TEXT NOT NULL,
+    proposal_hash TEXT NOT NULL DEFAULT '',
+    decision      TEXT NOT NULL DEFAULT 'approved',
+    created_at    TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS regression_cases (

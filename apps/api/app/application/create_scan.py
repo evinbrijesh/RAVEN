@@ -25,9 +25,18 @@ class CreateScan:
 
     def execute(self, config: ScanConfig) -> Scan:
         validated = validate_scan_config(config)
+        is_http = validated.target_id.startswith("http://") or validated.target_id.startswith("https://")
+        target_ref = TargetRef(
+            target_id=validated.target_id,
+            kind="http" if is_http else "local",
+            endpoint_url=validated.target_id if is_http else None,
+            header_names=["X-Raven-Scan-Consent"] if is_http else [],
+            consent_acknowledged=True,
+            timeout_seconds=validated.budget.per_call_timeout_seconds,
+        )
         scan = Scan(
             scan_id=f"scan_{uuid.uuid4().hex[:12]}",
-            target=TargetRef(target_id=validated.target_id),
+            target=target_ref,
             config=validated,
         )
         self._repos.scans.create(scan)

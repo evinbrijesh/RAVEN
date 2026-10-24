@@ -7,6 +7,7 @@ import type {
   ApproveHardeningResponse,
   CreateScanResponse,
   FindingsResponse,
+  HardeningProposal,
   RegressionCase,
   RegressionsResponse,
   Report,

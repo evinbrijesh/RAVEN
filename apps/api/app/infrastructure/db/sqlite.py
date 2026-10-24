@@ -31,9 +31,10 @@ class Database:
         self._shared: sqlite3.Connection = self._new_connection()
 
     def _new_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.path, check_same_thread=False)
+        conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30.0)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
@@ -66,6 +67,13 @@ class Database:
             )
         except sqlite3.IntegrityError:
             pass
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_findings_scan_attack"
+                " ON findings(scan_id, attack_id)"
+            )
+        except sqlite3.IntegrityError:
+            pass
 
     @staticmethod
     def _add_missing_columns(conn: sqlite3.Connection) -> None:
@@ -85,6 +93,8 @@ class Database:
             ("report_artifacts", "generator_version", "TEXT NOT NULL DEFAULT ''"),
             ("report_artifacts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
             ("findings", "weak_point_json", "TEXT"),
+            ("approvals", "proposal_hash", "TEXT NOT NULL DEFAULT ''"),
+            ("approvals", "decision", "TEXT NOT NULL DEFAULT 'approved'"),
         ]
         for table, column, ddl_type in additions:
             if table not in existing_tables:

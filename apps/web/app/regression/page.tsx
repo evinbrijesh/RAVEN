@@ -22,7 +22,7 @@ import {
   X,
 } from "lucide-react";
 import TopBar from "@/components/ui/TopBar";
-import { SpotlightCard, StatusBadge } from "@/components/ui/primitives";
+import { SpotlightCard } from "@/components/ui/primitives";
 import { ErrorBlock, LoadingBlock } from "@/components/ui/StateViews";
 import {
   listRegressions,
@@ -297,7 +297,7 @@ export default function RegressionSuitePage() {
           </div>
 
           {loading ? (
-            <LoadingBlock message="Loading persistent regression catalog…" />
+            <LoadingBlock label="Loading persistent regression catalog…" />
           ) : error ? (
             <ErrorBlock message={error} onRetry={fetchSuite} />
           ) : data && data.items.length > 0 ? (

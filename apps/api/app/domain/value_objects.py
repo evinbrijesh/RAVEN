@@ -30,10 +30,31 @@ class EvidenceRef(BaseModel):
 
 
 class TargetRef(BaseModel):
-    """Reference to a scan target. Only allowlisted targets are valid."""
+    """Reference and configuration for a scan target (typed & immutable).
+    
+    Adheres to safety requirements:
+    - Never stores raw secret keys/tokens (stores header names only).
+    - Persists consent acknowledgment, timeouts, request template, and response extraction path.
+    - Includes configuration hash for tamper-evident provenance.
+    """
 
     target_id: str
+    kind: str = "local"  # "local" | "http"
     version: str = "demo-1"
+    endpoint_url: str | None = None
+    request_template: dict[str, str] | None = None
+    response_json_path: str = "response"
+    header_names: list[str] = Field(default_factory=list)
+    consent_acknowledged: bool = True
+    timeout_seconds: float = 30.0
+    rate_limit_per_minute: int = 60
+    config_hash: str = ""
+
+    def model_post_init(self, __context: object) -> None:
+        if not self.config_hash:
+            import hashlib
+            data = f"{self.target_id}:{self.kind}:{self.endpoint_url}:{self.response_json_path}"
+            object.__setattr__(self, "config_hash", hashlib.sha256(data.encode("utf-8")).hexdigest()[:16])
 
 
 class ModelCallRecord(BaseModel):

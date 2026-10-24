@@ -239,7 +239,7 @@ export default function RetestPage() {
 
         {/* Comparison cards */}
         <section aria-label="Comparison metrics">
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
             {COMPARISON_CARDS.map((card) => (
               <SpotlightCard
                 key={card.label}
@@ -341,12 +341,20 @@ export default function RetestPage() {
           <p className="text-[var(--text-xs)] text-[var(--text-muted)]">
             Results describe only the evaluated cases. Not a proof of security.
           </p>
-          <Link
-            href="/scans/scan_123/report"
-            className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110"
-          >
-            View report →
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/regression"
+              className="rounded-[var(--radius-input)] border border-teal-500/30 bg-teal-500/10 px-4 py-2 text-[var(--text-sm)] font-mono text-[var(--accent)] hover:bg-teal-500/20 transition-colors"
+            >
+              Persistent Regression Suite →
+            </Link>
+            <Link
+              href="/scans/scan_123/report"
+              className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110"
+            >
+              View report →
+            </Link>
+          </div>
         </div>
       </main>
     </div>

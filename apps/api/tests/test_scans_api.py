@@ -120,3 +120,44 @@ def test_report_sarif_export(client: TestClient, valid_scan_payload: dict) -> No
     assert len(body["runs"]) == 1
     assert body["runs"][0]["tool"]["driver"]["name"] == "RAVEN"
 
+
+def test_approve_hardening_idempotency_and_rejection(
+    client: TestClient, valid_scan_payload: dict
+) -> None:
+    from app.domain.entities import HardeningProposal
+    from app.domain.enums import ScanStatus
+
+    scan_id = client.post("/api/scans", json=valid_scan_payload).json()["scan_id"]
+    repos = client.app.state.repos
+    repos.scans.update_status(scan_id, ScanStatus.AWAITING_APPROVAL)
+
+    prop = repos.proposals.save(
+        HardeningProposal(
+            proposal_id="fix_idemp_1",
+            scan_id=scan_id,
+            prompt_diff="--- a\n+++ b",
+            rationale="idempotency test",
+        )
+    )
+
+    # First approval -> moves to retesting
+    resp1 = client.post(
+        f"/api/scans/{scan_id}/approve-hardening",
+        json={"proposal_id": "fix_idemp_1", "approved": True, "approved_by": "sec-lead"},
+    )
+    assert resp1.status_code == 200
+    appr1 = resp1.json()
+    assert appr1["approved"] is True
+    assert appr1["approved_by"] == "sec-lead"
+    assert appr1["proposal_hash"] != ""
+    assert repos.scans.get(scan_id).status == ScanStatus.RETESTING
+
+    # Repeated approval request -> idempotent success without error
+    resp2 = client.post(
+        f"/api/scans/{scan_id}/approve-hardening",
+        json={"proposal_id": "fix_idemp_1", "approved": True, "approved_by": "sec-lead"},
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["approval_id"] == appr1["approval_id"]
+
+

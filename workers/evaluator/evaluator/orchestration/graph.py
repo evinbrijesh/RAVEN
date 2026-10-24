@@ -1,8 +1,12 @@
-"""LangGraph implementation of the RAVEN Security Regression Engine.
+"""LangGraph architectural representation of the RAVEN Security Regression Engine.
 
 Formalizes the closed-loop architecture:
 Recon -> Attack -> Judge (Deterministic + Semantic) -> Mutate (if blocked) ->
 Harden -> Human Approval Gate (Interrupt) -> Retest & Utility -> Report.
+
+Note on Orchestration Priority (P0.3):
+ScanEngine serves as the canonical runtime executor for durability, recovery, and
+restart safety. This graph defines the formal state topology and step contracts.
 """
 
 from __future__ import annotations

@@ -445,13 +445,15 @@ class ApprovalRepository:
     def save(self, approval: Approval) -> Approval:
         self._db.execute(
             "INSERT OR REPLACE INTO approvals (approval_id, proposal_id, scan_id,"
-            " approved, approved_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            " approved, approved_by, proposal_hash, decision, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 approval.approval_id,
                 approval.proposal_id,
                 approval.scan_id,
                 int(approval.approved),
                 approval.approved_by,
+                approval.proposal_hash,
+                approval.decision,
                 approval.created_at.isoformat(),
             ),
         )
@@ -471,6 +473,8 @@ class ApprovalRepository:
             scan_id=row["scan_id"],
             approved=bool(row["approved"]),
             approved_by=row["approved_by"],
+            proposal_hash=row["proposal_hash"] if "proposal_hash" in row.keys() and row["proposal_hash"] else "",
+            decision=row["decision"] if "decision" in row.keys() and row["decision"] else ("approved" if row["approved"] else "rejected"),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 

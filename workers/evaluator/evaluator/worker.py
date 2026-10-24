@@ -41,6 +41,25 @@ async def process_job(repos: Repositories, job: dict) -> None:
         logger.warning("unknown job kind: %s", kind)
 
 
+async def _worker_slot(
+    semaphore: asyncio.Semaphore,
+    repos: Repositories,
+    job: dict,
+    active_tasks: set[asyncio.Task],
+) -> None:
+    async with semaphore:
+        try:
+            await process_job(repos, job)
+            _complete(repos, job["job_id"])
+        except Exception as exc:
+            logger.exception("job %s failed", job["job_id"])
+            _fail(repos, job["job_id"], str(exc))
+        finally:
+            current_task = asyncio.current_task()
+            if current_task and current_task in active_tasks:
+                active_tasks.remove(current_task)
+
+
 async def main_loop() -> None:
     settings = get_worker_settings()
     db = Database(settings.database_path)
@@ -57,7 +76,18 @@ async def main_loop() -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
+    semaphore = asyncio.Semaphore(settings.worker_concurrency)
+    active_tasks: set[asyncio.Task] = set()
+
     while not stop.is_set():
+        # Prune done tasks
+        active_tasks = {t for t in active_tasks if not t.done()}
+
+        # Honor concurrency limit
+        if len(active_tasks) >= settings.worker_concurrency:
+            await asyncio.sleep(0.05)
+            continue
+
         job = repos.db and _claim(repos)
         if job is None:
             try:
@@ -65,14 +95,16 @@ async def main_loop() -> None:
             except TimeoutError:
                 pass
             continue
-        try:
-            await process_job(repos, job)
-            _complete(repos, job["job_id"])
-        except Exception as exc:
-            logger.exception("job %s failed", job["job_id"])
-            _fail(repos, job["job_id"], str(exc))
+
+        task = asyncio.create_task(_worker_slot(semaphore, repos, job, active_tasks))
+        active_tasks.add(task)
+
+    if active_tasks:
+        logger.info("waiting for %d active job(s) to finish...", len(active_tasks))
+        await asyncio.gather(*active_tasks, return_exceptions=True)
 
     logger.info("RAVEN worker stopped")
+
 
 
 def _claim(repos: Repositories) -> dict | None:
