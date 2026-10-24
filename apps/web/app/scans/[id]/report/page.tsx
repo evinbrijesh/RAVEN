@@ -15,6 +15,9 @@ import {
 import type { Report } from "@/lib/types";
 import { pct, VERDICT_META } from "@/components/report/shared";
 
+import { DEMO_REPORT } from "@/lib/demo-report";
+import Link from "next/link";
+
 /* ─── Section wrapper ────────────────────────────────────────────────────── */
 function ReportSection({
   title,
@@ -68,6 +71,25 @@ function ExportPanel({ scanId }: { scanId: string }) {
       anchor.click();
       URL.revokeObjectURL(url);
     } catch (cause) {
+      if (scanId === "scan_123") {
+        let fallbackText = "";
+        const mimes: Record<ReportFormat, string> = {
+          json: "application/json",
+          markdown: "text/markdown",
+          sarif: "application/sarif+json",
+        };
+        if (format === "json") fallbackText = JSON.stringify(DEMO_REPORT, null, 2);
+        else if (format === "sarif") fallbackText = JSON.stringify({ version: "2.1.0", runs: [] }, null, 2);
+        else fallbackText = `# RAVEN Security Regression Report: ${DEMO_REPORT.scan.scan_id}\n\n**Verdict:** ${DEMO_REPORT.summary.verdict}\n\n${DEMO_REPORT.summary.headline}`;
+        const blob = new Blob([fallbackText], { type: mimes[format] });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = reportFilename(scanId, format);
+        anchor.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
       setError(
         cause instanceof ApiRequestError
           ? `${cause.code}: ${cause.message}`
@@ -186,6 +208,11 @@ export default function ReportPage() {
       }
       setReport(result as Report);
     } catch (cause) {
+      if (scanId === "scan_123") {
+        // scan_123 is the showcase demo scan: seamlessly load demo report
+        setReport(DEMO_REPORT);
+        return;
+      }
       setError(
         cause instanceof ApiRequestError ? cause.message : "Failed to load report.",
       );
@@ -197,6 +224,7 @@ export default function ReportPage() {
   }, [load]);
 
   if (error) {
+    const isNetworkError = error.includes("Cannot reach RAVEN API") || error.includes("NETWORK_ERROR");
     return (
       <div className="flex flex-col">
         <TopBar
@@ -206,8 +234,34 @@ export default function ReportPage() {
             { label: "Report" },
           ]}
         />
-        <main className="flex-1 px-6 py-8">
-          <ErrorBlock title="Report not available" message={error} onRetry={() => void load()} />
+        <main className="flex-1 px-6 py-8 max-w-3xl mx-auto w-full space-y-6">
+          <ErrorBlock
+            title="Report not available"
+            message={error}
+            onRetry={() => void load()}
+          />
+          {isNetworkError && (
+            <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 space-y-3 font-mono">
+              <p className="text-xs text-[var(--text-secondary)]">
+                💡 <span className="font-semibold text-[var(--accent)]">Render Free Tier Notice:</span> The backend server sleeps after 15 minutes of inactivity. When awakened, it takes 30-50 seconds to complete its cold-start.
+              </p>
+              <div className="flex flex-wrap gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setReport(DEMO_REPORT)}
+                  className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110"
+                >
+                  Load Sample Audit Report (ShopHelper) →
+                </button>
+                <Link
+                  href="/scans/new"
+                  className="rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  Configure New Scan
+                </Link>
+              </div>
+            </div>
+          )}
         </main>
       </div>
     );

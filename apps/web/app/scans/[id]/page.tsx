@@ -401,7 +401,12 @@ export default function LiveScanPage() {
           setIsPlaying(false);
           return prev;
         }
-        const next = (prev + 1) % SIM_SEQUENCE.length;
+        // Stop playback once the simulation reaches the final Report step
+        if (prev >= SIM_SEQUENCE.length - 1) {
+          setIsPlaying(false);
+          return prev;
+        }
+        const next = prev + 1;
         const nextEvent = SIM_SEQUENCE[next].event;
         if (nextEvent) {
           setEventsList((list) => [...list.slice(-18), nextEvent]);
@@ -542,6 +547,25 @@ export default function LiveScanPage() {
           </div>
 
           <PhaseStepper current={currentStep.phase} />
+
+          {/* Phase Explanatory Banner: clarifies the 2-phase testing workflow */}
+          <div className="mt-4 flex items-center justify-between rounded-md border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-3.5 py-2 text-xs font-mono">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-teal-400" />
+              <span className="text-[var(--text-secondary)]">
+                {currentStep.phase === "Recon" || currentStep.phase === "Attack" || currentStep.phase === "Judge"
+                  ? "Phase 1: Baseline Attack Assessment — executing 12 attack vectors against unhardened target"
+                  : currentStep.phase === "Approval"
+                  ? "Human Gate: Review proposed prompt diff and policy guardrails before re-executing attacks"
+                  : currentStep.phase === "Retest"
+                  ? "Phase 2: Post-Hardening Retest — re-verifying attacks and 10 benign utility prompts on patched target"
+                  : "Audit Complete: Hardening verified with before/after attack success rate delta and CI gate"}
+              </span>
+            </div>
+            <span className="text-[10px] text-[var(--text-muted)] hidden md:inline">
+              {currentStep.phase === "Retest" ? "Phase 2/2" : currentStep.phase === "Report" ? "Complete" : "Phase 1/2"}
+            </span>
+          </div>
         </section>
 
         {/* Target Recon Profile Inspector */}
@@ -604,7 +628,7 @@ export default function LiveScanPage() {
                   Approve and Retest →
                 </button>
                 <Link
-                  href="/scans/scan_123/hardening"
+                  href={`/scans/${scanId}/hardening`}
                   className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-xs font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 >
                   Inspect Diff
@@ -628,7 +652,7 @@ export default function LiveScanPage() {
                 </p>
               </div>
               <Link
-                href="/scans/scan_123/report"
+                href={`/scans/${scanId}/report`}
                 className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all"
               >
                 View Full Audit Report →
@@ -671,13 +695,13 @@ export default function LiveScanPage() {
           </span>
           <div className="flex items-center gap-3">
             <Link
-              href="/scans/scan_123/findings"
+              href={`/scans/${scanId}/findings`}
               className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-teal-500/40 transition-colors"
             >
               Browse Findings ({currentStep.counters.failures} confirmed) →
             </Link>
             <Link
-              href="/scans/scan_123/hardening"
+              href={`/scans/${scanId}/hardening`}
               className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all"
             >
               Hardening Review →

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard } from "@/components/ui/primitives";
 import { AgentTrace, type TraceStep } from "@/components/ui/AgentConstellation";
@@ -85,6 +86,9 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
 
 /* ─── Main screen ─────────────────────────────────────────────────────────── */
 export default function HardeningPage() {
+  const params = useParams<{ id: string }>();
+  const scanId = (params?.id as string) || "scan_123";
+
   const [traceOpen, setTraceOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [approved, setApproved] = useState(false);
@@ -94,7 +98,7 @@ export default function HardeningPage() {
       <TopBar
         breadcrumbs={[
           { label: "Scans", href: "/scans" },
-          { label: "scan_123", href: "/scans/scan_123" },
+          { label: scanId, href: `/scans/${scanId}` },
           { label: "Hardening" },
         ]}
         scanStatus="awaiting_approval"

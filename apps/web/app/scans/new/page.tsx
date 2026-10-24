@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard } from "@/components/ui/primitives";
+import { createScan } from "@/lib/api-client";
 
 /* ─── Sample budget summary data ─────────────────────────────────────────── */
 const AGENT_ROSTER = [
@@ -74,8 +75,30 @@ export default function NewScanPage() {
   const handleStart = async () => {
     if (!consent) return;
     setStarting(true);
-    await new Promise((r) => setTimeout(r, 600));
-    router.push("/scans/scan_123");
+    try {
+      const res = await createScan({
+        target_id: "shophelper-local",
+        attack_categories: Array.from(categories),
+        max_attempts_per_attack: attempts,
+        enable_mutation: mutation,
+        run_benign_suite: benign,
+        budget: {
+          max_attack_cases: maxAttacks,
+          max_attempts_per_attack: attempts,
+          max_model_calls: modelCalls,
+          max_total_tokens: 50000,
+          per_call_timeout_seconds: 15,
+          scan_timeout_seconds: 600,
+          concurrency_limit: 2,
+        },
+      });
+      router.push(`/scans/${res.scan_id}`);
+    } catch (err) {
+      console.warn("Backend scan creation skipped or unavailable, loading demo scan:", err);
+      router.push("/scans/scan_123");
+    } finally {
+      setStarting(false);
+    }
   };
 
   return (

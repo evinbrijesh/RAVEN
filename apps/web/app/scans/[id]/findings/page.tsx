@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
 import { LabelChip, CategoryChip, SeverityBadge, Skeleton, SpotlightCard } from "@/components/ui/primitives";
 import WeaknessMap from "@/components/scan/WeaknessMap";
@@ -69,7 +70,7 @@ const FINDINGS: Finding[] = [
 ];
 
 /* ─── Detail drawer ──────────────────────────────────────────────────────── */
-function FindingDrawer({ finding, onClose }: { finding: Finding; onClose: () => void }) {
+function FindingDrawer({ finding, onClose, scanId }: { finding: Finding; onClose: () => void; scanId: string }) {
   const howDecided =
     finding.label === "confirmed_failure" || finding.label === "attack_blocked"
       ? "rule_confirmed — deterministic check conclusive"
@@ -182,7 +183,7 @@ function FindingDrawer({ finding, onClose }: { finding: Finding; onClose: () => 
         {finding.evidenceRef && (
           <div className="flex items-center gap-3">
             <Link
-              href={`/scans/scan_123/evidence/${finding.evidenceRef}`}
+              href={`/scans/${scanId}/evidence/${finding.evidenceRef}`}
               className="text-[var(--text-sm)] text-[var(--accent)] hover:brightness-110"
             >
               View evidence →
@@ -203,6 +204,9 @@ function FindingDrawer({ finding, onClose }: { finding: Finding; onClose: () => 
 
 /* ─── Main screen ─────────────────────────────────────────────────────────── */
 export default function FindingsPage() {
+  const params = useParams<{ id: string }>();
+  const scanId = (params?.id as string) || "scan_123";
+
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null);
   const [selectedComponent, setSelectedComponent] = useState<string | null>(null);
   const [severityFilter, setSeverityFilter] = useState("all");
@@ -221,7 +225,7 @@ export default function FindingsPage() {
       <TopBar
         breadcrumbs={[
           { label: "Scans", href: "/scans" },
-          { label: "scan_123", href: "/scans/scan_123" },
+          { label: scanId, href: `/scans/${scanId}` },
           { label: "Findings" },
         ]}
         scanStatus="completed"
@@ -236,7 +240,7 @@ export default function FindingsPage() {
             </p>
           </div>
           <Link
-            href="/scans/scan_123/hardening"
+            href={`/scans/${scanId}/hardening`}
             className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110"
           >
             Review hardening →
@@ -350,7 +354,7 @@ export default function FindingsPage() {
                   <td className="px-4 py-3 text-right">
                     {f.evidenceRef && (
                       <Link
-                        href={`/scans/scan_123/evidence/${f.evidenceRef}`}
+                        href={`/scans/${scanId}/evidence/${f.evidenceRef}`}
                         onClick={(e) => e.stopPropagation()}
                         className="text-[var(--text-xs)] text-[var(--accent)] opacity-0 transition-opacity group-hover:opacity-100"
                       >
@@ -367,7 +371,11 @@ export default function FindingsPage() {
 
       {/* Finding detail drawer */}
       {selectedFinding && (
-        <FindingDrawer finding={selectedFinding} onClose={() => setSelectedFinding(null)} />
+        <FindingDrawer
+          finding={selectedFinding}
+          scanId={scanId}
+          onClose={() => setSelectedFinding(null)}
+        />
       )}
     </div>
   );

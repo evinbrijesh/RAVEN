@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard, LabelChip } from "@/components/ui/primitives";
 import WeaknessMap from "@/components/scan/WeaknessMap";
@@ -153,12 +154,15 @@ function GroupedBarChart() {
 
 /* ─── Main screen ─────────────────────────────────────────────────────────── */
 export default function RetestPage() {
+  const params = useParams<{ id: string }>();
+  const scanId = (params?.id as string) || "scan_123";
+
   return (
     <div className="flex flex-col">
       <TopBar
         breadcrumbs={[
           { label: "Scans", href: "/scans" },
-          { label: "scan_123", href: "/scans/scan_123" },
+          { label: scanId, href: `/scans/${scanId}` },
           { label: "Before & After" },
         ]}
         scanStatus="completed"
@@ -168,7 +172,7 @@ export default function RetestPage() {
         <div>
           <h1 className="text-[var(--text-xl)] font-semibold tracking-tight">Before & after retest</h1>
           <p className="mt-1 text-[var(--text-sm)] text-[var(--text-secondary)]">
-            Comparing scan_123 · hardening proposal H-001 applied
+            Comparing {scanId} · hardening proposal H-001 applied
           </p>
         </div>
 
@@ -349,7 +353,7 @@ export default function RetestPage() {
               Persistent Regression Suite →
             </Link>
             <Link
-              href="/scans/scan_123/report"
+              href={`/scans/${scanId}/report`}
               className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110"
             >
               View report →
