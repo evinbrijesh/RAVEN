@@ -331,6 +331,27 @@ export default function ReportPage() {
           </div>
         </div>
 
+        {/* Awaiting Approval Banner */}
+        {report.scan.status === "awaiting_approval" && (
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[var(--radius-card)] border border-amber-500/40 bg-amber-950/20 p-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 font-mono text-xs text-amber-400 font-semibold uppercase tracking-wider">
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-ping" />
+                Hardening Proposed · Awaiting Operator Approval
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Phase 1 baseline attacks identified confirmed vulnerabilities ({pct(security.before_attack_success_rate)} attack success rate). A hardening patch was drafted. To execute Phase 2 (verification retest) and measure remediation deltas, approve the hardening proposal.
+              </p>
+            </div>
+            <Link
+              href={`/scans/${scanId}/hardening`}
+              className="flex-shrink-0 rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all text-center"
+            >
+              Review & Approve Hardening →
+            </Link>
+          </div>
+        )}
+
         <div className="grid gap-8 lg:grid-cols-[1fr_240px]">
           {/* ── Document content ────────────────────────────────────────── */}
           <div className="max-w-3xl space-y-10">
@@ -469,6 +490,19 @@ export default function ReportPage() {
                   value={`${pct(utility.before_benign_success_rate)} → ${pct(utility.after_benign_success_rate)} (Δ ${pct(utility.delta)})`}
                 />
               </dl>
+              {security.after_attack_success_rate === null && (
+                <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-amber-900/30 bg-amber-950/15 p-3 text-xs font-mono text-amber-300/90">
+                  <span>
+                    ℹ️ "After" metrics are pending. Approve the hardening proposal to execute Phase 2 retest and calculate remediation efficacy.
+                  </span>
+                  <Link
+                    href={`/scans/${scanId}/hardening`}
+                    className="text-[var(--accent)] font-semibold hover:underline whitespace-nowrap"
+                  >
+                    Approve proposal →
+                  </Link>
+                </div>
+              )}
               {utility.over_refusal_case_ids.length > 0 && (
                 <p className="text-[var(--text-sm)] text-amber-300/90">
                   Over-refusal detected after hardening:{" "}
