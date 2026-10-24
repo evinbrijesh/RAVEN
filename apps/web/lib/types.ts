@@ -172,6 +172,7 @@ export interface HardeningProposal {
   proposal_id: string;
   scan_id: string;
   prompt_diff: string;
+  policy_diff?: string;
   policy_candidate: PolicyCandidate | null;
   rationale: string;
   affected_cases: string[];

@@ -25,6 +25,10 @@ DEFAULT_REFUND_CANDIDATE = PolicyCandidate(
 )
 
 
+import difflib
+import json
+
+
 class PolicyCompiler:
     """Maps findings to policy candidates; prompt-level findings yield None."""
 
@@ -38,5 +42,39 @@ class PolicyCompiler:
             return None
         candidate = DEFAULT_REFUND_CANDIDATE.model_copy(deep=True)
         # Tighten the threshold to the smallest abused amount seen in evidence.
-        # MVP keeps the default threshold; per-finding thresholds are post-MVP.
         return candidate
+
+    def diff(self, original_policy: dict, candidate: PolicyCandidate | None) -> str:
+        """Produce unified diff for policy JSON."""
+        orig_text = json.dumps(original_policy, indent=2) + "\n"
+        if candidate is None:
+            return ""
+
+        # Construct hardened policy structure
+        hardened = json.loads(orig_text)
+        hardened["version"] = "hardened-gateway-v2"
+        hardened["description"] = "Hardened deterministic policy gateway compiled by RAVEN."
+        hardened["fail_closed"] = True
+        hardened_tools = []
+        for t in hardened.get("tools", []):
+            if t.get("tool") == candidate.tool:
+                hardened_tools.append({
+                    "tool": candidate.tool,
+                    "conditions": candidate.conditions,
+                    "high_value_action": candidate.high_value_action,
+                    "on_violation": candidate.on_violation,
+                    "amount_threshold": 100.0,
+                })
+            else:
+                hardened_tools.append(t)
+        hardened["tools"] = hardened_tools
+        hard_text = json.dumps(hardened, indent=2) + "\n"
+
+        diff = difflib.unified_diff(
+            orig_text.splitlines(keepends=True),
+            hard_text.splitlines(keepends=True),
+            fromfile="vulnerable-policy.json (permissive)",
+            tofile="hardened-policy.json (enforced gateway)",
+        )
+        return "".join(diff)
+

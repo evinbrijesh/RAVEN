@@ -48,6 +48,7 @@ class Scan(BaseModel):
     progress: float = 0.0
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = None
 
     @field_validator("target")
     @classmethod
@@ -191,6 +192,7 @@ class HardeningProposal(BaseModel):
     proposal_id: str
     scan_id: str
     prompt_diff: str
+    policy_diff: str = ""
     policy_candidate: PolicyCandidate | None = None
     rationale: str
     affected_cases: list[str] = Field(default_factory=list)

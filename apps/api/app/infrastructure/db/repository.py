@@ -48,6 +48,14 @@ def _now() -> str:
     return utc_now().isoformat()
 
 
+_TERMINAL_SCAN_STATUSES = frozenset({
+    ScanStatus.COMPLETED,
+    ScanStatus.COMPLETED_WITHOUT_RETEST,
+    ScanStatus.FAILED_PARTIAL,
+    ScanStatus.FAILED_FATAL,
+})
+
+
 class ScanRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
@@ -55,7 +63,7 @@ class ScanRepository:
     def create(self, scan: Scan) -> Scan:
         self._db.execute(
             "INSERT INTO scans (scan_id, status, target_id, config_json, progress,"
-            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 scan.scan_id,
                 scan.status.value,
@@ -64,6 +72,7 @@ class ScanRepository:
                 scan.progress,
                 scan.created_at.isoformat(),
                 scan.updated_at.isoformat(),
+                scan.completed_at.isoformat() if scan.completed_at else None,
             ),
         )
         return scan
@@ -80,21 +89,32 @@ class ScanRepository:
             progress=row["progress"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            completed_at=(
+                datetime.fromisoformat(row["completed_at"])
+                if row["completed_at"]
+                else None
+            ),
         )
 
     def update_status(
         self, scan_id: str, status: ScanStatus, progress: float | None = None
     ) -> None:
+        # Stamp completed_at exactly once, on the first terminal transition
+        # (report contract: scan.completed_at, ADR 0001).
+        completed_at = (
+            _now() if status in _TERMINAL_SCAN_STATUSES else None
+        )
         if progress is None:
             self._db.execute(
-                "UPDATE scans SET status = ?, updated_at = ? WHERE scan_id = ?",
-                (status.value, _now(), scan_id),
+                "UPDATE scans SET status = ?, updated_at = ?,"
+                " completed_at = COALESCE(completed_at, ?) WHERE scan_id = ?",
+                (status.value, _now(), completed_at, scan_id),
             )
         else:
             self._db.execute(
-                "UPDATE scans SET status = ?, progress = ?, updated_at = ?"
-                " WHERE scan_id = ?",
-                (status.value, progress, _now(), scan_id),
+                "UPDATE scans SET status = ?, progress = ?, updated_at = ?,"
+                " completed_at = COALESCE(completed_at, ?) WHERE scan_id = ?",
+                (status.value, progress, _now(), completed_at, scan_id),
             )
 
     def list(self) -> list[Scan]:
@@ -190,8 +210,9 @@ class RunRepository:
         self._db.execute(
             "INSERT OR REPLACE INTO verdicts (verdict_id, run_id, scan_id,"
             " rule_label, rule_signals_json, llm_label, llm_confidence, llm_reason,"
+            " llm_model_name, llm_prompt_version,"
             " final_label, resolution, evidence_refs_json, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 verdict.verdict_id,
                 verdict.run_id,
@@ -201,6 +222,8 @@ class RunRepository:
                 verdict.llm_result.label.value if verdict.llm_result else None,
                 verdict.llm_result.confidence if verdict.llm_result else None,
                 verdict.llm_result.reason if verdict.llm_result else None,
+                verdict.llm_result.model_name if verdict.llm_result else None,
+                verdict.llm_result.prompt_version if verdict.llm_result else None,
                 verdict.final_label.value,
                 verdict.resolution.value,
                 json.dumps([r.model_dump() for r in verdict.evidence_refs]),
@@ -208,6 +231,21 @@ class RunRepository:
             ),
         )
         return verdict
+
+    def get_transcript(self, run_id: str) -> Transcript | None:
+        """Typed transcript access for the report collector (ADR 0001)."""
+        row = self._db.query_one(
+            "SELECT messages_json FROM transcripts WHERE run_id = ?", (run_id,)
+        )
+        if row is None:
+            row = self._db.query_one(
+                "SELECT transcript_json AS messages_json FROM attack_runs"
+                " WHERE run_id = ? AND transcript_json IS NOT NULL",
+                (run_id,),
+            )
+        if row is None:
+            return None
+        return Transcript.model_validate_json(row["messages_json"])
 
     def list_runs(self, scan_id: str, phase: RunPhase | None = None) -> list[dict[str, Any]]:
         if phase is None:
@@ -243,6 +281,8 @@ class RunRepository:
                     label=FindingLabel(row["llm_label"]),
                     confidence=row["llm_confidence"] or 0.0,
                     reason=row["llm_reason"] or "",
+                    model_name=row["llm_model_name"] or "",
+                    prompt_version=row["llm_prompt_version"] or "",
                 )
             verdicts.append(
                 Verdict(
@@ -335,12 +375,13 @@ class ProposalRepository:
     def save(self, proposal: HardeningProposal) -> HardeningProposal:
         self._db.execute(
             "INSERT OR REPLACE INTO hardening_proposals (proposal_id, scan_id,"
-            " prompt_diff, policy_candidate_json, rationale, affected_cases_json,"
-            " risks_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            " prompt_diff, policy_diff, policy_candidate_json, rationale, affected_cases_json,"
+            " risks_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 proposal.proposal_id,
                 proposal.scan_id,
                 proposal.prompt_diff,
+                proposal.policy_diff,
                 proposal.policy_candidate.model_dump_json() if proposal.policy_candidate else None,
                 proposal.rationale,
                 json.dumps(proposal.affected_cases),
@@ -493,6 +534,11 @@ class TestRunRepository:
             for row in rows
         ]
 
+    def latest_for_scan(self, scan_id: str, kind: TestRunKind) -> TestRun | None:
+        """Most recent test run of a kind (report collector, ADR 0001)."""
+        runs = self.list_for_scan(scan_id, kind)
+        return runs[-1] if runs else None
+
 
 class RegressionRepository:
     def __init__(self, db: Database) -> None:
@@ -518,17 +564,57 @@ class RegressionRepository:
 
 
 class ReportRepository:
+    """Immutable report artifacts keyed by content hash (ADR 0001).
+
+    The same persisted evidence must not produce duplicate artifacts: an
+    artifact is written once per (scan, format, content hash).
+    """
+
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def save_artifact(self, scan_id: str, fmt: str, content: str) -> str:
+    def save_artifact(
+        self,
+        scan_id: str,
+        fmt: str,
+        content: str,
+        *,
+        content_sha256: str = "",
+        schema_version: str = "1.0",
+        generator_version: str = "",
+    ) -> str:
+        existing = self.get_artifact_by_hash(scan_id, fmt, content_sha256)
+        if existing is not None:
+            return str(existing["artifact_id"])
         artifact_id = _id("rpt")
         self._db.execute(
             "INSERT INTO report_artifacts (artifact_id, scan_id, format, content,"
-            " created_at) VALUES (?, ?, ?, ?, ?)",
-            (artifact_id, scan_id, fmt, content, _now()),
+            " schema_version, generator_version, content_sha256, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                artifact_id,
+                scan_id,
+                fmt,
+                content,
+                schema_version,
+                generator_version,
+                content_sha256,
+                _now(),
+            ),
         )
         return artifact_id
+
+    def get_artifact_by_hash(
+        self, scan_id: str, fmt: str, content_sha256: str
+    ) -> dict[str, Any] | None:
+        if not content_sha256:
+            return None
+        row = self._db.query_one(
+            "SELECT * FROM report_artifacts WHERE scan_id = ? AND format = ?"
+            " AND content_sha256 = ? ORDER BY created_at DESC LIMIT 1",
+            (scan_id, fmt, content_sha256),
+        )
+        return dict(row) if row is not None else None
 
     def get_artifact(self, scan_id: str, fmt: str) -> dict[str, Any] | None:
         row = self._db.query_one(

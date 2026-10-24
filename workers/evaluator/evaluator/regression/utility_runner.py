@@ -32,14 +32,25 @@ class UtilityRegressionRunner:
                 results.append(
                     {
                         "case_id": case.id,
-                        "passed": passed,
+                        "goal": case.goal,
+                        "prompt": case.prompt,
                         "expected": case.expected_behavior,
+                        "version": case.version,
+                        "passed": passed,
                         "blocked_by_policy": response.blocked_by_policy,
                     }
                 )
             except Exception as exc:  # noqa: BLE001
                 results.append(
-                    {"case_id": case.id, "passed": False, "error": str(exc)}
+                    {
+                        "case_id": case.id,
+                        "goal": case.goal,
+                        "prompt": case.prompt,
+                        "expected": case.expected_behavior,
+                        "version": case.version,
+                        "passed": False,
+                        "error": str(exc),
+                    }
                 )
         passed = sum(1 for r in results if r.get("passed"))
         return TestRun(

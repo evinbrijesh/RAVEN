@@ -99,17 +99,23 @@ export default function HardeningDiffViewer({
     return <LoadingBlock label="Loading hardening proposal…" />;
   }
 
-  const diffLines = parseDiff(proposal.prompt_diff);
+  const [activeLayer, setActiveLayer] = useState<"prompt" | "policy">("prompt");
+  const diffLines = parseDiff(activeLayer === "prompt" ? proposal.prompt_diff : (proposal.policy_diff || ""));
 
   return (
     <section className="rounded-lg border border-violet-900/60 bg-zinc-900/50">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-4 py-2.5">
-        <h2 className="text-sm font-medium text-zinc-300">
-          Hardening proposal{" "}
-          <span className="font-mono text-xs text-zinc-500">
-            {proposal.proposal_id}
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-medium text-zinc-300">
+            Hardening proposal{" "}
+            <span className="font-mono text-xs text-zinc-500">
+              {proposal.proposal_id}
+            </span>
+          </h2>
+          <span className="rounded bg-violet-950/70 px-2 py-0.5 text-[11px] font-semibold text-violet-300 border border-violet-800/60">
+            Defense-in-Depth
           </span>
-        </h2>
+        </div>
         {decided ? (
           <span
             className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -153,27 +159,64 @@ export default function HardeningDiffViewer({
       <div className="space-y-4 p-4">
         <p className="text-sm text-zinc-300">{proposal.rationale}</p>
 
-        {proposal.policy_candidate && (
-          <div className="rounded-md border border-zinc-800 bg-zinc-900 p-3 text-xs text-zinc-400">
+        {/* Defense-in-Depth layer selector */}
+        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveLayer("prompt")}
+              className={`rounded px-3 py-1 text-xs font-medium transition ${
+                activeLayer === "prompt"
+                  ? "bg-violet-900/60 text-violet-200 border border-violet-700"
+                  : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Layer 1: Semantic Prompt Patch
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveLayer("policy")}
+              className={`rounded px-3 py-1 text-xs font-medium transition ${
+                activeLayer === "policy"
+                  ? "bg-violet-900/60 text-violet-200 border border-violet-700"
+                  : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              }`}
+            >
+              Layer 2: Deterministic Policy Gateway
+            </button>
+          </div>
+          <span className="text-[11px] text-zinc-500 font-mono">
+            {activeLayer === "prompt" ? "system-prompt.txt diff" : "vulnerable-policy.json diff"}
+          </span>
+        </div>
+
+        {activeLayer === "policy" && proposal.policy_candidate && (
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/70 p-3 text-xs text-zinc-400">
             <p className="mb-1 font-medium text-zinc-300">
-              Policy candidate:{" "}
-              <span className="font-mono">{proposal.policy_candidate.tool}</span>
+              Compiled Gateway Rules:{" "}
+              <span className="font-mono text-emerald-400">{proposal.policy_candidate.tool}</span>
             </p>
-            <p>conditions: {proposal.policy_candidate.conditions.join("; ") || "—"}</p>
-            <p>
-              high-value action: {proposal.policy_candidate.high_value_action} · on
-              violation: {proposal.policy_candidate.on_violation}
+            <p className="mt-1">
+              Enforced Guards:{" "}
+              <span className="font-mono text-zinc-300">{proposal.policy_candidate.conditions.join(" AND ") || "none"}</span>
+            </p>
+            <p className="mt-1">
+              Constraint action: <span className="font-mono text-amber-400">{proposal.policy_candidate.high_value_action}</span> · On violation: <span className="font-mono text-red-400">{proposal.policy_candidate.on_violation}</span>
             </p>
           </div>
         )}
 
         <div className="overflow-x-auto rounded-md border border-zinc-800 bg-zinc-950">
           <pre className="min-w-0 p-3 font-mono text-xs leading-5">
-            {diffLines.map((line, index) => (
-              <div key={index} className={`px-2 ${LINE_STYLES[line.type]}`}>
-                {line.text || " "}
-              </div>
-            ))}
+            {diffLines.length === 0 || (diffLines.length === 1 && !diffLines[0].text) ? (
+              <div className="px-2 text-zinc-500 italic">No diff available for this layer.</div>
+            ) : (
+              diffLines.map((line, index) => (
+                <div key={index} className={`px-2 ${LINE_STYLES[line.type]}`}>
+                  {line.text || " "}
+                </div>
+              ))
+            )}
           </pre>
         </div>
 

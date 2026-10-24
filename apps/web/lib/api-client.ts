@@ -145,6 +145,20 @@ export function promoteFindingToRegression(
   );
 }
 
+export function getFindingTranscript(
+  scanId: string,
+  findingId: string,
+): Promise<{
+  finding_id: string;
+  attack_id: string;
+  evidence_refs: Array<{ ref_id: string; kind: string; locator: string; hash_sha256: string }>;
+  messages: Array<{ role: string; content: string; tool_name?: string; tool_args_json?: string }>;
+}> {
+  return request(
+    `/api/scans/${encodeURIComponent(scanId)}/findings/${encodeURIComponent(findingId)}/transcript`,
+  );
+}
+
 export async function getReport(
   scanId: string,
   format: "json" | "markdown" | "sarif",

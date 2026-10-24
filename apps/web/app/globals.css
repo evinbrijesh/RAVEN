@@ -1,9 +1,218 @@
 @import "tailwindcss";
 
+/* ─── RAVEN Design Token System ───────────────────────────────────────────── */
 :root {
+  /* Background layers */
+  --bg-base:       #0A0D12;
+  --bg-surface:    #11151C;
+  --bg-raised:     #161B24;
+  --bg-overlay:    #1C2230;
+
+  /* Borders */
+  --border-hairline: rgba(255,255,255,0.06);
+  --border-subtle:   rgba(255,255,255,0.10);
+
+  /* Accent */
+  --accent:        #2DD4BF;
+  --accent-dim:    rgba(45,212,191,0.15);
+  --accent-glow:   rgba(45,212,191,0.08);
+
+  /* Text */
+  --text-primary:   #E6EAF0;
+  --text-secondary: #8B95A5;
+  --text-muted:     #5B6575;
+
+  /* Status colors */
+  --status-failure-red:    #EF4444;
+  --status-failure-orange: #F97316;
+  --status-review-amber:   #F59E0B;
+  --status-partial-yellow: #EAB308;
+  --status-blocked-green:  #22C55E;
+  --status-evaluated-gray: #6B7280;
+  --status-verified-teal:  #2DD4BF;
+
+  /* Typography scale */
+  --text-xs:   12px;
+  --text-sm:   13px;
+  --text-base: 14px;
+  --text-md:   16px;
+  --text-lg:   20px;
+  --text-xl:   28px;
+
+  /* Spacing unit */
+  --unit: 8px;
+
+  /* Radius */
+  --radius-card:  8px;
+  --radius-input: 6px;
+
   color-scheme: dark;
 }
 
+/* Light theme */
+[data-theme="light"] {
+  --bg-base:       #F4F6F9;
+  --bg-surface:    #FFFFFF;
+  --bg-raised:     #F0F2F5;
+  --bg-overlay:    #E8ECF2;
+  --border-hairline: rgba(0,0,0,0.06);
+  --border-subtle:   rgba(0,0,0,0.10);
+  --text-primary:   #0F1117;
+  --text-secondary: #4B5563;
+  --text-muted:     #9CA3AF;
+  color-scheme: light;
+}
+
+/* ─── Base Resets ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  min-height: 100dvh;
+}
+
+/* ─── Dotted Grid Background ───────────────────────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ─── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+
+/* ─── Typography ───────────────────────────────────────────────────────────── */
+.font-mono, code, pre, .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  font-variant-ligatures: none;
+}
+
+/* ─── Focus rings ──────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Animations ───────────────────────────────────────────────────────────── */
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.08); }
+}
+
+@keyframes pulse-travel {
+  0%   { opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-breathe    { animation: breathe 2s ease-in-out infinite; }
+.animate-fade-in    { animation: fade-in 200ms ease-out both; }
+.animate-toast-in   { animation: toast-in 200ms ease-out both; }
+
+/* ─── Skeleton Loader ──────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-raised) 25%,
+    rgba(255,255,255,0.04) 50%,
+    var(--bg-raised) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.8s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+/* ─── Spotlight Card ───────────────────────────────────────────────────────── */
+.spotlight-card {
+  position: relative;
+  overflow: hidden;
+  transition: border-color 200ms ease;
+}
+.spotlight-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  border-radius: inherit;
+  background: radial-gradient(600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(45,212,191,0.04), transparent 60%);
+  transition: opacity 300ms ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.spotlight-card:hover::before { opacity: 1; }
+.spotlight-card > * { position: relative; z-index: 1; }
+
+/* ─── Agent Node styles ────────────────────────────────────────────────────── */
+.agent-ring-active {
+  filter: drop-shadow(0 0 6px rgba(45,212,191,0.5));
+}
+
+/* ─── Status label chip colors ─────────────────────────────────────────────── */
+.label-confirmed-failure       { background: rgba(239,68,68,0.12);  color: #FCA5A5; border-color: rgba(239,68,68,0.25); }
+.label-likely-failure          { background: rgba(249,115,22,0.12); color: #FDBA74; border-color: rgba(249,115,22,0.25); }
+.label-needs-review            { background: rgba(245,158,11,0.12); color: #FCD34D; border-color: rgba(245,158,11,0.25); }
+.label-partial-mitigation      { background: rgba(234,179,8,0.12);  color: #FDE68A; border-color: rgba(234,179,8,0.25); }
+.label-attack-blocked          { background: rgba(34,197,94,0.12);  color: #86EFAC; border-color: rgba(34,197,94,0.25); }
+.label-not-evaluated           { background: rgba(107,114,128,0.12);color: #9CA3AF; border-color: rgba(107,114,128,0.25); }
+.label-verified-under          { background: transparent;            color: #2DD4BF; border-color: #2DD4BF; }
+.label-regression-detected     { background: rgba(239,68,68,0.12);  color: #FCA5A5; border-color: rgba(239,68,68,0.25); }
+
+/* ─── Phase stepper ────────────────────────────────────────────────────────── */
+.phase-step-active .phase-dot  { background: var(--accent); box-shadow: 0 0 0 3px rgba(45,212,191,0.2); }
+.phase-step-done .phase-dot    { background: var(--accent); }
+.phase-step-pending .phase-dot { background: var(--bg-raised); border: 1px solid var(--border-subtle); }
+
+/* ─── Diff viewer ──────────────────────────────────────────────────────────── */
+.diff-removed { background: rgba(239,68,68,0.08);  border-left: 2px solid rgba(239,68,68,0.5); }
+.diff-added   { background: rgba(34,197,94,0.08);  border-left: 2px solid rgba(34,197,94,0.5); }
+
+/* ─── Needs-review amber border ────────────────────────────────────────────── */
+.border-needs-review { border-left: 3px solid var(--status-review-amber) !important; }
+.border-regression   { border-left: 3px solid var(--status-failure-red) !important; }
+
+/* ─── Reduced-motion overrides ──────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-breathe, .animate-fade-in, .animate-toast-in, .skeleton {
+    animation: none !important;
+    transition: none !important;
+  }
+  .spotlight-card::before { display: none; }
 }

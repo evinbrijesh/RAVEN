@@ -83,7 +83,8 @@ def test_ssrf_validation() -> None:
         validate_target_url("http://169.254.169.254/latest/meta-data")
 
     # Consent header requirement
-    with pytest.raises(SSRFValidationError):
+    from app.security.ssrf import MissingConsentError
+    with pytest.raises(MissingConsentError):
         assert_consent_header({"some-header": "value"})
 
     assert_consent_header({"x-raven-scan-consent": "true"})

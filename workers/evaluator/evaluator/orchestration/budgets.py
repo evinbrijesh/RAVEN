@@ -46,6 +46,14 @@ class BudgetTracker:
         self.model_calls_used += 1
         self.tokens_used += tokens
 
+    def record_tokens(self, input_tokens: int, output_tokens: int) -> None:
+        """Post-hoc token accounting for a call already counted (H4 fix).
+
+        The call slot is reserved before the request; actual usage is recorded
+        afterwards so max_total_tokens is enforced on the next reservation.
+        """
+        self.tokens_used += max(0, input_tokens) + max(0, output_tokens)
+
     def snapshot(self) -> dict[str, int]:
         return {
             "model_calls_used": self.model_calls_used,

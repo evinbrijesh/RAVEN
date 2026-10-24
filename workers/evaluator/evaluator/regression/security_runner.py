@@ -94,7 +94,7 @@ class SecurityRegressionRunner:
             except Exception as exc:  # noqa: BLE001 - target failure: mark not evaluated
                 best = {
                     "result": {
-                        "attack_id": case.id,
+                        **_case_metadata(case),
                         "label": FindingLabel.NOT_EVALUATED.value,
                         "attempt": attempt,
                         "error": str(exc),
@@ -113,7 +113,7 @@ class SecurityRegressionRunner:
             verdict = self._resolver.resolve(scan_id, run_id, rule_result, llm_result, transcript)
             outcome = {
                 "result": {
-                    "attack_id": case.id,
+                    **_case_metadata(case),
                     "label": verdict.final_label.value,
                     "attempt": attempt,
                     "signals": rule_result.signals,
@@ -130,6 +130,20 @@ class SecurityRegressionRunner:
 
         assert best is not None
         return best
+
+
+def _case_metadata(case: AttackCase) -> dict[str, Any]:
+    """Case metadata persisted with every result so the report is
+    self-contained from test_runs alone (ADR 0001 data prerequisites)."""
+    return {
+        "attack_id": case.id,
+        "category": case.category.value,
+        "goal": case.goal,
+        "success_rule": case.success_rule,
+        "references": case.references,
+        "attack_version": case.version,
+        "severity": case.severity.value,
+    }
 
 
 def _transcript_from_response(

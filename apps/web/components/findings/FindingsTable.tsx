@@ -57,6 +57,28 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
   const [filter, setFilter] = useState<"all" | "review">("all");
   const [promotedMap, setPromotedMap] = useState<Record<string, boolean>>({});
   const [promotingId, setPromotingId] = useState<string | null>(null);
+  const [viewingFinding, setViewingFinding] = useState<Finding | null>(null);
+  const [transcriptData, setTranscriptData] = useState<{
+    messages: Array<{ role: string; content: string; tool_name?: string; tool_args_json?: string }>;
+    evidence_refs: Array<{ ref_id: string; kind: string; locator: string; hash_sha256: string }>;
+    timeline?: Array<{ time_ms: number; stage: string; badge: string; detail: string }>;
+  } | null>(null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+
+  async function openTranscript(finding: Finding) {
+    setViewingFinding(finding);
+    setLoadingTranscript(true);
+    setTranscriptData(null);
+    try {
+      const { getFindingTranscript } = await import("@/lib/api-client");
+      const res = await getFindingTranscript(scanId, finding.finding_id);
+      setTranscriptData(res);
+    } catch {
+      setTranscriptData({ messages: [], evidence_refs: [] });
+    } finally {
+      setLoadingTranscript(false);
+    }
+  }
 
   const displayedFindings = findings?.filter((f) =>
     filter === "review" ? f.needs_review || f.label === "needs_review" : true,
@@ -76,6 +98,15 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
   }
 
   const reviewCount = findings?.filter((f) => f.needs_review || f.label === "needs_review").length ?? 0;
+
+  const [modalTab, setModalTab] = useState<"timeline" | "transcript">("timeline");
+
+  const BADGE_STYLES: Record<string, string> = {
+    breach: "bg-red-950/80 text-red-300 border-red-800",
+    warning: "bg-amber-950/80 text-amber-300 border-amber-800",
+    blocked: "bg-emerald-950/80 text-emerald-300 border-emerald-800",
+    info: "bg-zinc-800 text-zinc-300 border-zinc-700",
+  };
 
   return (
     <div className="space-y-2">
@@ -140,11 +171,20 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
                 </td>
                 <td className="max-w-md px-4 py-3 text-zinc-300">
                   <div>{finding.summary}</div>
-                  {finding.evidence_refs?.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-zinc-500 font-mono">
-                      evidence: {finding.evidence_refs.join(", ")}
-                    </div>
-                  )}
+                  <div className="mt-1 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void openTranscript(finding)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 underline underline-offset-2"
+                    >
+                      View Evidence & Transcript →
+                    </button>
+                    {finding.evidence_refs?.length > 0 && (
+                      <span className="text-[11px] text-zinc-500 font-mono">
+                        ({finding.evidence_refs.length} refs)
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-right">
                   {promotedMap[finding.finding_id] ? (
@@ -168,6 +208,158 @@ export default function FindingsTable({ scanId }: { scanId: string }) {
           </tbody>
         </table>
       </div>
+
+      {viewingFinding && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+            <div className="flex items-start justify-between border-b border-zinc-800 pb-3">
+              <div>
+                <h3 className="font-semibold text-zinc-200">
+                  Evidence Ledger: {viewingFinding.attack_id}
+                </h3>
+                <p className="mt-0.5 text-xs text-zinc-400">{viewingFinding.summary}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingFinding(null)}
+                className="text-sm text-zinc-400 hover:text-zinc-200"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-zinc-500">Verdict:</span>
+                <LabelBadge label={viewingFinding.label} />
+                <span className="text-zinc-500 ml-2">Confidence:</span>
+                <span className="text-zinc-300">{Math.round(viewingFinding.confidence * 100)}%</span>
+              </div>
+
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setModalTab("timeline")}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                      modalTab === "timeline"
+                        ? "bg-violet-900/60 text-violet-200 border border-violet-700"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Exploit Replay Timeline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalTab("transcript")}
+                    className={`rounded px-2.5 py-1 text-xs font-medium transition ${
+                      modalTab === "transcript"
+                        ? "bg-violet-900/60 text-violet-200 border border-violet-700"
+                        : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                    }`}
+                  >
+                    Raw Transcript
+                  </button>
+                </div>
+                <span className="text-[11px] text-zinc-500 font-mono">
+                  {modalTab === "timeline" ? "Deterministic State Trace" : "Wire Messages"}
+                </span>
+              </div>
+
+              {loadingTranscript ? (
+                <p className="text-xs text-zinc-400 py-4 text-center">Loading execution trace…</p>
+              ) : modalTab === "timeline" ? (
+                <div className="space-y-3 py-2">
+                  {transcriptData?.timeline && transcriptData.timeline.length > 0 ? (
+                    <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-zinc-800">
+                      {transcriptData.timeline.map((item, idx) => (
+                        <div key={idx} className="relative group">
+                          {/* Dot */}
+                          <div
+                            className={`absolute -left-[22px] top-1.5 h-3 w-3 rounded-full border-2 bg-zinc-950 ${
+                              item.badge === "breach"
+                                ? "border-red-500 bg-red-950"
+                                : item.badge === "warning"
+                                  ? "border-amber-500 bg-amber-950"
+                                  : item.badge === "blocked"
+                                    ? "border-emerald-500 bg-emerald-950"
+                                    : "border-zinc-500"
+                            }`}
+                          />
+                          <div className="rounded border border-zinc-800 bg-zinc-950/70 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                              <span className="font-semibold text-zinc-200">{item.stage}</span>
+                              <div className="flex items-center gap-2">
+                                <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase border ${BADGE_STYLES[item.badge] || BADGE_STYLES.info}`}>
+                                  {item.badge}
+                                </span>
+                                <span className="font-mono text-[10px] text-zinc-500">T+{item.time_ms}ms</span>
+                              </div>
+                            </div>
+                            <div className="font-mono text-[11px] text-zinc-400 whitespace-pre-wrap break-words bg-zinc-900/60 rounded p-2 border border-zinc-800/60">
+                              {item.detail}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500 italic py-2">
+                      No replay trace available for this attack run.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 py-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Prompt & Tool Execution Transcript
+                  </h4>
+                  {transcriptData?.messages && transcriptData.messages.length > 0 ? (
+                    <div className="space-y-2">
+                      {transcriptData.messages.map((m, idx) => (
+                        <div
+                          key={idx}
+                          className={`rounded p-2.5 text-xs font-mono ${
+                            m.role === "user"
+                              ? "bg-zinc-800 text-zinc-200 border-l-2 border-indigo-500"
+                              : m.role === "assistant"
+                                ? "bg-zinc-950 text-emerald-300 border-l-2 border-emerald-500"
+                                : "bg-zinc-950/60 text-amber-300 border-l-2 border-amber-500"
+                          }`}
+                        >
+                          <div className="text-[10px] uppercase font-bold text-zinc-500 mb-1">
+                            [{m.role}] {m.tool_name ? `(tool: ${m.tool_name})` : ""}
+                          </div>
+                          <div className="whitespace-pre-wrap">{m.content}</div>
+                          {m.tool_args_json && (
+                            <pre className="mt-1 text-[11px] text-zinc-400">
+                              {m.tool_args_json}
+                            </pre>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-zinc-500 italic">
+                      No raw transcript recorded for this run.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 border-t border-zinc-800 pt-3 text-right">
+              <button
+                type="button"
+                onClick={() => setViewingFinding(null)}
+                className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-700"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

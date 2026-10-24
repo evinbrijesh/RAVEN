@@ -84,6 +84,9 @@ class TestRunKind(StrEnum):
     SECURITY_BEFORE = "security_before"
     SECURITY_AFTER = "security_after"
     UTILITY = "utility"
+    # Pre-hardening benign baseline; required for the over-refusal delta
+    # (docs/adr/0001-report-artifact-pipeline.md "Data prerequisites").
+    UTILITY_BEFORE = "utility_before"
 
 
 class RunPhase(StrEnum):

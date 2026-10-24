@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS scans (
     config_json TEXT NOT NULL,
     progress    REAL NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
+    updated_at  TEXT NOT NULL,
+    completed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scan_events (
@@ -64,6 +65,8 @@ CREATE TABLE IF NOT EXISTS verdicts (
     llm_label          TEXT,
     llm_confidence     REAL,
     llm_reason         TEXT,
+    llm_model_name     TEXT,
+    llm_prompt_version TEXT,
     final_label        TEXT NOT NULL,
     resolution         TEXT NOT NULL,
     evidence_refs_json TEXT NOT NULL,
@@ -90,6 +93,7 @@ CREATE TABLE IF NOT EXISTS hardening_proposals (
     proposal_id          TEXT PRIMARY KEY,
     scan_id              TEXT NOT NULL,
     prompt_diff          TEXT NOT NULL,
+    policy_diff          TEXT NOT NULL DEFAULT '',
     policy_candidate_json TEXT,
     rationale            TEXT NOT NULL,
     affected_cases_json  TEXT NOT NULL,
@@ -134,12 +138,17 @@ CREATE TABLE IF NOT EXISTS test_runs (
 );
 
 CREATE TABLE IF NOT EXISTS report_artifacts (
-    artifact_id TEXT PRIMARY KEY,
-    scan_id     TEXT NOT NULL,
-    format      TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    created_at  TEXT NOT NULL
+    artifact_id       TEXT PRIMARY KEY,
+    scan_id           TEXT NOT NULL,
+    format            TEXT NOT NULL,
+    content           TEXT NOT NULL,
+    schema_version    TEXT NOT NULL DEFAULT '1.0',
+    generator_version TEXT NOT NULL DEFAULT '',
+    content_sha256    TEXT NOT NULL DEFAULT '',
+    created_at        TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_artifact_hash
+    ON report_artifacts(scan_id, format, content_sha256);
 
 -- Job queue (SQLite-backed so the MVP needs no Redis; swap for Redis later).
 CREATE TABLE IF NOT EXISTS jobs (

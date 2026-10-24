@@ -47,7 +47,30 @@ class Database:
         with self._lock:
             conn = self.connect()
             conn.executescript(ddl)
+            self._add_missing_columns(conn)
             conn.commit()
+
+    @staticmethod
+    def _add_missing_columns(conn: sqlite3.Connection) -> None:
+        """Additive migrations for databases created before a column existed.
+
+        schema.sql uses CREATE TABLE IF NOT EXISTS, so pre-existing files never
+        gain new columns from it. Each entry: (table, column, DDL fragment).
+        """
+        additions: list[tuple[str, str, str]] = [
+            ("scans", "completed_at", "TEXT"),
+            ("verdicts", "llm_model_name", "TEXT"),
+            ("verdicts", "llm_prompt_version", "TEXT"),
+            ("report_artifacts", "schema_version", "TEXT NOT NULL DEFAULT '1.0'"),
+            ("report_artifacts", "generator_version", "TEXT NOT NULL DEFAULT ''"),
+            ("report_artifacts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
+        ]
+        for table, column, ddl_type in additions:
+            existing = {
+                row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
 
     def execute(self, sql: str, params: tuple[Any, ...] = ()) -> None:
         with self._lock:

@@ -434,6 +434,7 @@
         "max_attempts_per_attack": { "type": "integer", "minimum": 1, "maximum": 2 },
         "enable_mutation": { "type": "boolean" },
         "run_benign_suite": { "type": "boolean" },
+        "regression_only_mode": { "type": "boolean", "default": false },
         "budget": { "$ref": "#/$defs/budget" }
       }
     },

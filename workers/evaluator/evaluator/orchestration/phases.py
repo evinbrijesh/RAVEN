@@ -8,6 +8,7 @@ a recorded approval.
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any
 
@@ -24,6 +25,7 @@ from app.domain.enums import (
     RunPhase,
     ScanStatus,
     Severity,
+    TestRunKind,
 )
 from app.domain.errors import RavenError
 from app.infrastructure.db.repository import Repositories
@@ -113,10 +115,7 @@ class ScanEngine:
                 else None
             )
             runner = SecurityRegressionRunner(judge_ctx, budget, semantic_judge=semantic_judge)
-            cases = self._planner.select(
-                [c.value for c in scan.config.attack_categories],
-                scan.config.budget.max_attack_cases,
-            )
+            cases = self._select_cases(scan)
             after_run, _ = await runner.run_security(target, cases, scan_id, RunPhase.AFTER)
             self._persist_test_run(after_run)
 
@@ -154,14 +153,11 @@ class ScanEngine:
         scan = self._repos.scans.get(scan_id)
         assert scan is not None
         if scan.config.regression_only_mode:
-            # Load active regression cases for target
-            active_regs = self._repos.regressions.list_active(scan.target.target_id)
-            reg_case_ids = {r["attack_case_id"] for r in active_regs}
-            all_cases = self._planner.select(
-                [c.value for c in scan.config.attack_categories] if scan.config.attack_categories else [],
-                scan.config.budget.max_attack_cases,
-            )
-            cases = [c for c in all_cases if c.id in reg_case_ids] if reg_case_ids else all_cases[:3]
+            # Regression-only: filter the FULL catalog by active regression
+            # ids first, then cap by budget (B6: never slice before filtering,
+            # never fall back to arbitrary attacks). Empty selection runs zero
+            # cases and the report marks the scan inconclusive.
+            cases = self._select_regression_cases(scan)
         else:
             cases = self._planner.select(
                 [c.value for c in scan.config.attack_categories],
@@ -180,6 +176,17 @@ class ScanEngine:
         self._set_status(scan_id, ScanStatus.JUDGING, 0.4)
         before_run, verdicts = await runner.run_security(target, cases, scan_id, RunPhase.BEFORE)
         self._persist_test_run(before_run)
+
+        # Pre-hardening benign baseline: required for the over-refusal delta
+        # (ADR 0001 data prerequisites). Runs against the vulnerable target.
+        if scan.config.run_benign_suite:
+            utility_runner = UtilityRegressionRunner()
+            baseline = await utility_runner.run_utility(
+                target, self._planner.load_benign_cases(), scan_id
+            )
+            baseline.kind = TestRunKind.UTILITY_BEFORE
+            baseline.metrics = {**baseline.metrics, "phase": "before"}
+            self._persist_test_run(baseline)
 
         findings: list[Finding] = []
         for case, run_id, verdict, transcript in verdicts:
@@ -227,15 +234,18 @@ class ScanEngine:
         _hardened_prompt, diff = hardener.propose(original_prompt)
         compiler = PolicyCompiler()
         candidate = compiler.compile(findings)
+        orig_policy = json.loads((target.fixtures_path / "vulnerable-policy.json").read_text(encoding="utf-8"))
+        p_diff = compiler.diff(orig_policy, candidate)
 
         proposal = HardeningProposal(
             proposal_id=f"fix_{uuid.uuid4().hex[:12]}",
             scan_id=scan_id,
             prompt_diff=diff,
+            policy_diff=p_diff,
             policy_candidate=candidate,
             rationale=(
-                "Deterministic hardening: instruction-leak refusal, PII disclosure "
-                "refusal, and verified refund conditions for issue_refund."
+                "Multi-layer defense-in-depth: prompt refusal hardening paired with "
+                "strict deterministic policy gateway constraints on tool execution."
             ),
             affected_cases=[f.attack_id for f in findings],
             risks=[
@@ -254,11 +264,37 @@ class ScanEngine:
         self._set_status(scan_id, ScanStatus.AWAITING_APPROVAL, 0.75)
 
     # --- helpers ------------------------------------------------------------
+    def _select_cases(self, scan) -> list:
+        """Case selection for a security pass, honoring regression-only mode."""
+        if not scan.config.regression_only_mode:
+            return self._planner.select(
+                [c.value for c in scan.config.attack_categories],
+                scan.config.budget.max_attack_cases,
+            )
+        return self._select_regression_cases(scan)
+
+    def _select_regression_cases(self, scan) -> list:
+        """Regression-only selection: full catalog → filter by active
+        regression ids → cap by budget. Fail closed: unknown persisted ids are
+        skipped, and an empty selection runs zero cases (never arbitrary
+        attacks)."""
+        from evaluator.attacks.planner import load_attack_cases
+
+        active = self._repos.regressions.list_active(scan.target.target_id)
+        reg_ids = {r["attack_case_id"] for r in active}
+        categories = (
+            [c.value for c in scan.config.attack_categories] or None
+        )
+        catalog = load_attack_cases(categories, limit=None)
+        selected = [c for c in catalog if c.id in reg_ids]
+        return selected[: scan.config.budget.max_attack_cases]
+
     def _persist_test_run(self, run: TestRun) -> None:
         self._repos.test_runs.save(run)
 
     async def _save_regressions(self, scan_id: str, target_id: str, after_run: TestRun) -> None:
         """Persist blocked attack cases as versioned regression cases."""
+        saved = 0
         for result in after_run.results:
             if result.get("label") == FindingLabel.ATTACK_BLOCKED.value:
                 case_id = result.get("attack_id", "")
@@ -267,7 +303,8 @@ class ScanEngine:
                     _stub_case(case_id),
                     f'{{"attack_case_id": "{case_id}", "expected": "attack_blocked"}}',
                 )
-        self._emit(scan_id, EventKind.REGRESSION_SAVED, {"count": len(after_run.results)})
+                saved += 1
+        self._emit(scan_id, EventKind.REGRESSION_SAVED, {"count": saved})
 
     def _set_status(self, scan_id: str, status: ScanStatus, progress: float) -> None:
         scan = self._repos.scans.get(scan_id)

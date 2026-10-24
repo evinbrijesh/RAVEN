@@ -20,7 +20,7 @@ from app.domain.entities import (
     Transcript,
 )
 from app.domain.enums import FindingLabel, JudgeRole
-from app.domain.errors import BudgetExceeded, ModelSchemaViolation, ModelUnavailable
+from app.domain.errors import BudgetExceeded, ModelUnavailable
 
 from evaluator.orchestration.budgets import BudgetTracker
 
@@ -140,7 +140,8 @@ def get_model_client(
             model_name=model_name or "meta-llama/llama-3.3-70b-instruct:free",
             base_url=base_url or "https://openrouter.ai/api/v1",
         )
-    return NullModelClient()
+    # Unknown provider: no usable client (never claim availability, H5).
+    return None
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -223,15 +224,17 @@ class SemanticJudge:
             record.duration_ms = int((time.monotonic() - started) * 1000)
             record.input_tokens = in_tok
             record.output_tokens = out_tok
+            self._budget.record_tokens(in_tok, out_tok)
             try:
                 result = _validate_payload(_extract_json(text))
-            except (ValueError, KeyError) as exc:
+            except (ValueError, KeyError):
                 record.status = "invalid_json_retried" if attempt == 1 else "error"
                 self.calls.append(record)
                 if attempt == 2:
-                    raise ModelSchemaViolation(
-                        f"Semantic judge returned invalid JSON twice: {exc}"
-                    ) from exc
+                    # Schema violation after one retry: degrade to
+                    # deterministic-only instead of failing the whole scan
+                    # (model-call rules: semantic judgment marked unavailable).
+                    return None
                 continue
             result.model_name = self._model_name
             result.prompt_version = PROMPT_VERSION
