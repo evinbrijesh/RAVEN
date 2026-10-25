@@ -82,27 +82,46 @@ class SecurityRegressionRunner:
         max_attempts = self._budget.budget.max_attempts_per_attack
         best: dict[str, Any] | None = None
         prior_bot_response: str | None = None
+        prior_responses: list[str] = []
+        strategy_used: str = "seed_catalog"
 
         for attempt in range(1, max_attempts + 1):
-            self._budget.consume_attempt(case.id)
-            if attempt == 1:
-                prompt = case.seed_prompt
-            else:
-                from evaluator.attacks.mutation import mutate_attack_prompt
+            if attempt > 1:
+                from evaluator.attacks.mutation import (
+                    check_adversarial_convergence,
+                    compute_evasion_score,
+                    mutate_attack_prompt,
+                )
+
+                # 1. Dynamic Evasion Budgeting: Early Stop on Hard Defenses
+                evasion_profile = compute_evasion_score(prior_bot_response)
+                if not evasion_profile["should_mutate"]:
+                    # Model has rigid, non-negotiable hardness; do not waste tokens/budget
+                    break
+
+                # 2. Adversarial Convergence Decay: Stop on repetitive dead ends
+                if check_adversarial_convergence(prior_responses):
+                    break
+
                 model_cli = self._semantic_judge._client if self._semantic_judge else None
-                prompt = await mutate_attack_prompt(
+                prompt, strategy_used = await mutate_attack_prompt(
                     seed_prompt=case.seed_prompt,
                     goal=case.goal,
                     prior_response=prior_bot_response,
                     attempt=attempt,
                     model_client=model_cli,
                 )
+            else:
+                prompt = case.seed_prompt
+
+            self._budget.consume_attempt(case.id)
             run_id = f"run_{uuid.uuid4().hex[:12]}"
             try:
                 response = await target.invoke(
                     TargetRequest(scan_id=scan_id, run_id=run_id, message=prompt)
                 )
                 prior_bot_response = response.message
+                prior_responses.append(response.message)
             except Exception as exc:  # noqa: BLE001 - target failure: mark not evaluated
                 best = {
                     "result": {
@@ -130,6 +149,7 @@ class SecurityRegressionRunner:
                     **_case_metadata(case),
                     "label": verdict.final_label.value,
                     "attempt": attempt,
+                    "strategy": strategy_used,
                     "signals": rule_result.signals,
                     "resolution": verdict.resolution.value,
                 },
