@@ -32,6 +32,8 @@ import {
   SpotlightCard,
 } from "@/components/ui/primitives";
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
+import ScanRadarPulse from "@/components/scan/ScanRadarPulse";
+import FrontierChart from "@/components/report/FrontierChart";
 import { getScan } from "@/lib/api-client";
 import { connectScanEvents } from "@/lib/sse-client";
 import type { TargetProfile, ScanEvent } from "@/lib/types";
@@ -659,6 +661,27 @@ export default function LiveScanPage() {
               </Link>
             </div>
           </SpotlightCard>
+        )}
+
+        {/* Real-time Cyber Radar & Telemetry HUD */}
+        <section aria-label="Vector radar">
+          <ScanRadarPulse
+            phase={currentStep.phase}
+            isScanning={isPlaying && currentStep.phase !== "Report"}
+          />
+        </section>
+
+        {/* 2D Pareto Frontier Assurance (Visible on Retest and Report phases) */}
+        {(currentStep.phase === "Retest" || currentStep.phase === "Report") && (
+          <section aria-label="Security vs utility frontier" className="animate-fade-in">
+            <FrontierChart
+              beforeSecurity={0.25}
+              afterSecurity={0.92}
+              beforeUtility={0.95}
+              afterUtility={0.94}
+              overRefusalRate={0}
+            />
+          </section>
         )}
 
         {/* Two-column: live event feed + telemetry counters */}

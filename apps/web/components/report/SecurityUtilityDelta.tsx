@@ -2,6 +2,7 @@
 
 import type { Report } from "@/lib/types";
 import { deltaColor, pct } from "./shared";
+import FrontierChart from "./FrontierChart";
 
 function DeltaTable({
   rows,
@@ -60,6 +61,15 @@ export default function SecurityUtilityDelta({ report }: { report: Report }) {
           </div>
         </div>
       </div>
+
+      {/* Interactive 2D Pareto Frontier Chart */}
+      <FrontierChart
+        beforeSecurity={security.before_blocked_rate ?? (security.before_attack_success_rate !== null ? 1 - security.before_attack_success_rate : 0.2)}
+        afterSecurity={security.after_blocked_rate ?? (security.after_attack_success_rate !== null ? 1 - security.after_attack_success_rate : 0.9)}
+        beforeUtility={utility.before_benign_success_rate ?? 1.0}
+        afterUtility={utility.after_benign_success_rate ?? 1.0}
+        overRefusalRate={paranoiaRate}
+      />
 
       <div className="mt-3 grid gap-4 lg:grid-cols-2">
         <div>
