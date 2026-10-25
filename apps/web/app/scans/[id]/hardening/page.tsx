@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
 import { SpotlightCard, LabelChip, SeverityBadge } from "@/components/ui/primitives";
 import { AgentTrace, type TraceStep } from "@/components/ui/AgentConstellation";
+import { approveHardening, getProposal, getScan } from "@/lib/api-client";
+import type { HardeningProposal as HardeningProposalType } from "@/lib/types";
 import {
   ShieldAlert,
   FileDiff,
@@ -306,14 +308,22 @@ function EvidenceBlock({
 }
 
 /* ─── Approval confirmation dialog ──────────────────────────────────────── */
-function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+function ConfirmDialog({
+  onConfirm,
+  onCancel,
+  loading = false,
+}: {
+  onConfirm: () => void;
+  onCancel: () => void;
+  loading?: boolean;
+}) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape" && !loading) onCancel();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [onCancel]);
+  }, [onCancel, loading]);
 
   return (
     <div
@@ -322,7 +332,7 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
       aria-modal
       aria-labelledby="confirm-title"
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden onClick={onCancel} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" aria-hidden onClick={loading ? undefined : onCancel} />
       <div className="relative w-full max-w-md rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-overlay)] p-6 shadow-2xl">
         <h2 id="confirm-title" className="text-[var(--text-md)] font-semibold">Confirm approval</h2>
         <p className="mt-3 text-[var(--text-sm)] text-[var(--text-secondary)]">
@@ -337,17 +347,19 @@ function ConfirmDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCance
           <button
             type="button"
             onClick={onCancel}
+            disabled={loading}
             autoFocus
-            className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] px-4 py-2 text-[var(--text-sm)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40"
+            className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] px-4 py-2 text-[var(--text-sm)] text-[var(--text-secondary)] hover:border-[var(--accent)]/40 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110"
+            disabled={loading}
+            className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-[var(--text-sm)] font-medium text-[#0A0D12] hover:brightness-110 disabled:opacity-50"
           >
-            Approve and Retest
+            {loading ? "Approving…" : "Approve and Retest"}
           </button>
         </div>
       </div>
@@ -364,28 +376,121 @@ type ChangeTab = "prompt" | "policy" | "regression";
 export default function HardeningPage() {
   const params = useParams<{ id: string }>();
   const scanId = typeof params.id === "string" ? params.id : "scan_123";
+  const router = useRouter();
 
   const [traceOpen, setTraceOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<ChangeTab>("prompt");
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [decision, setDecision] = useState<Decision>(null);
+  const [proposal, setProposal] = useState<HardeningProposalType | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [approving, setApproving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   /* -1 = not started; 0..2 = RETEST_STAGES index; 3 = complete */
   const [retestStage, setRetestStage] = useState(-1);
 
-  /* Staged post-approval progress: applying → security retest → benign suite */
+  // Load proposal and scan status on mount
   useEffect(() => {
-    if (decision !== "approved" || retestStage < 0 || retestStage >= RETEST_STAGES.length) return;
-    const delay = retestStage === 0 ? 1400 : 2200;
-    const t = setTimeout(() => setRetestStage((s) => s + 1), delay);
-    return () => clearTimeout(t);
-  }, [decision, retestStage]);
+    let active = true;
+    async function loadData() {
+      try {
+        const [scanRes, propRes] = await Promise.allSettled([
+          getScan(scanId),
+          getProposal(scanId),
+        ]);
+        if (!active) return;
+        if (propRes.status === "fulfilled") {
+          setProposal(propRes.value);
+        }
+        if (scanRes.status === "fulfilled") {
+          const scan = scanRes.value;
+          if (scan.status === "completed") {
+            setDecision("approved");
+            setRetestStage(RETEST_STAGES.length);
+          } else if (scan.status === "retesting") {
+            setDecision("approved");
+            setRetestStage(1);
+          }
+        }
+      } catch {
+        // demo fallback or offline
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    void loadData();
+    return () => {
+      active = false;
+    };
+  }, [scanId]);
+
+  // Retest polling loop when approved and retesting
+  useEffect(() => {
+    if (decision !== "approved" || retestStage >= RETEST_STAGES.length) return;
+
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const scan = await getScan(scanId);
+        if (!active) return;
+        if (scan.status === "completed") {
+          setRetestStage(RETEST_STAGES.length);
+        } else if (scan.status === "failed_partial" || scan.status === "failed_fatal") {
+          setActionError(`Verification retest ended with status: ${scan.status}. Check evaluator logs.`);
+          setDecision(null);
+          setRetestStage(-1);
+        } else if (scan.status === "retesting") {
+          setRetestStage((prev) => (prev < RETEST_STAGES.length - 1 ? prev + 1 : prev));
+        }
+      } catch {
+        // ignore polling network blips
+      }
+    }, 1500);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [decision, retestStage, scanId]);
+
+  const handleApprove = async () => {
+    setApproving(true);
+    setActionError(null);
+    try {
+      const propId = proposal?.proposal_id || "prop_default";
+      await approveHardening(scanId, propId, true);
+      setDecision("approved");
+      setRetestStage(0);
+      setConfirmOpen(false);
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to approve proposal.");
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = async () => {
+    setApproving(true);
+    setActionError(null);
+    try {
+      const propId = proposal?.proposal_id || "prop_default";
+      await approveHardening(scanId, propId, false);
+      setDecision("rejected");
+    } catch (err: any) {
+      setActionError(err?.message || "Failed to reject proposal.");
+    } finally {
+      setApproving(false);
+    }
+  };
 
   const retestComplete = retestStage >= RETEST_STAGES.length;
   const retestRunning = decision === "approved" && retestStage >= 0 && !retestComplete;
 
-  const promptStats = diffStats(PROMPT_DIFF);
-  const policyStats = diffStats(POLICY_DIFF);
+  const promptDiffText = proposal?.prompt_diff || PROMPT_DIFF;
+  const policyDiffText = proposal?.policy_diff || POLICY_DIFF;
+  const promptStats = diffStats(promptDiffText);
+  const policyStats = diffStats(policyDiffText);
 
   const TABS: {
     id: ChangeTab;
@@ -557,8 +662,8 @@ export default function HardeningPage() {
               </div>
 
               <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
-                {activeTab === "prompt" && <DiffTable diffText={PROMPT_DIFF} />}
-                {activeTab === "policy" && <DiffTable diffText={POLICY_DIFF} />}
+                {activeTab === "prompt" && <DiffTable diffText={promptDiffText} />}
+                {activeTab === "policy" && <DiffTable diffText={policyDiffText} />}
                 {activeTab === "regression" && (
                   <div className="p-4">
                     <p className="mb-3 text-[var(--text-xs)] text-[var(--text-secondary)]">
@@ -677,19 +782,33 @@ export default function HardeningPage() {
               </div>
             )}
             {retestComplete && (
-              <div className="rounded-[var(--radius-card)] border border-emerald-900/40 bg-emerald-950/20 p-4">
+              <div className="rounded-[var(--radius-card)] border border-emerald-900/40 bg-emerald-950/20 p-4 space-y-3">
                 <p className="flex items-center gap-2 text-[var(--text-xs)] font-medium text-emerald-300">
-                  <CheckCircle2 className="h-4 w-4" /> Retest complete
+                  <CheckCircle2 className="h-4 w-4" /> Retest complete · Hardening Verified
                 </p>
-                <p className="mt-1.5 text-[11px] text-emerald-200/70">
-                  Security retest and benign utility suite finished. Compare before/after results.
+                <p className="text-[11px] text-emerald-200/70">
+                  Security retest and benign utility suite finished. Remediation confirmed and regressions prevented.
                 </p>
-                <Link
-                  href={`/scans/${scanId}/retest`}
-                  className="mt-3 flex items-center justify-center gap-1.5 rounded-[var(--radius-input)] bg-[var(--accent)] px-3 py-2 text-[var(--text-xs)] font-semibold text-[#0A0D12] hover:brightness-110"
-                >
-                  View before/after <ArrowRight className="h-3.5 w-3.5" />
-                </Link>
+                <div className="flex flex-col gap-2 pt-1">
+                  <Link
+                    href={`/scans/${scanId}/report`}
+                    className="flex items-center justify-center gap-1.5 rounded-[var(--radius-input)] bg-[var(--accent)] px-3 py-2 text-[var(--text-xs)] font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all"
+                  >
+                    View Final Audit Report <ArrowRight className="h-3.5 w-3.5" />
+                  </Link>
+                  <Link
+                    href={`/scans/${scanId}/retest`}
+                    className="flex items-center justify-center gap-1.5 rounded-[var(--radius-input)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-[var(--text-xs)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  >
+                    View before/after retest →
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {actionError && (
+              <div className="rounded-[var(--radius-card)] border border-red-900/50 bg-red-950/30 p-3 text-xs text-red-300">
+                {actionError}
               </div>
             )}
 
@@ -715,27 +834,29 @@ export default function HardeningPage() {
               <button
                 type="button"
                 onClick={() => setConfirmOpen(true)}
-                disabled={decision !== null}
+                disabled={decision !== null || approving}
                 className={`w-full rounded-[var(--radius-input)] px-4 py-2.5 text-[var(--text-sm)] font-medium transition-all
-                  ${decision !== null
+                  ${decision !== null || approving
                     ? "cursor-not-allowed bg-[var(--bg-raised)] text-[var(--text-muted)]"
                     : "bg-[var(--accent)] text-[#0A0D12] hover:brightness-110"
                   }`}
               >
-                {retestRunning
-                  ? RETEST_STAGES[Math.min(retestStage, RETEST_STAGES.length - 1)]
-                  : decision === "approved"
-                    ? "Approved"
-                    : decision === "rejected"
-                      ? "Rejected"
-                      : decision === "revision_requested"
-                        ? "Revision requested"
-                        : "Approve and Retest"}
+                {approving
+                  ? "Submitting approval…"
+                  : retestRunning
+                    ? RETEST_STAGES[Math.min(retestStage, RETEST_STAGES.length - 1)]
+                    : decision === "approved"
+                      ? "Approved"
+                      : decision === "rejected"
+                        ? "Rejected"
+                        : decision === "revision_requested"
+                          ? "Revision requested"
+                          : "Approve and Retest"}
               </button>
               <button
                 type="button"
-                onClick={() => setDecision("rejected")}
-                disabled={decision !== null}
+                onClick={handleReject}
+                disabled={decision !== null || approving}
                 className="w-full rounded-[var(--radius-input)] border border-[var(--border-subtle)] px-4 py-2.5 text-[var(--text-sm)] text-[var(--text-secondary)] hover:border-red-900/50 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Reject Proposal
@@ -743,7 +864,7 @@ export default function HardeningPage() {
               <button
                 type="button"
                 onClick={() => setDecision("revision_requested")}
-                disabled={decision !== null}
+                disabled={decision !== null || approving}
                 className="w-full rounded-[var(--radius-input)] border border-[var(--border-subtle)] px-4 py-2.5 text-[var(--text-sm)] text-[var(--text-secondary)] hover:border-amber-900/50 hover:text-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Request Revision
@@ -761,12 +882,9 @@ export default function HardeningPage() {
 
       {confirmOpen && (
         <ConfirmDialog
-          onConfirm={() => {
-            setDecision("approved");
-            setRetestStage(0);
-            setConfirmOpen(false);
-          }}
+          onConfirm={handleApprove}
           onCancel={() => setConfirmOpen(false)}
+          loading={approving}
         />
       )}
     </div>

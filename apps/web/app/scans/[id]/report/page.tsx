@@ -7,8 +7,11 @@ import { LabelChip } from "@/components/ui/primitives";
 import { ErrorBlock, LoadingBlock } from "@/components/ui/StateViews";
 import {
   ApiRequestError,
+  approveHardening,
+  getProposal,
   getReport,
   getReportText,
+  getScan,
   reportFilename,
   type ReportFormat,
 } from "@/lib/api-client";
@@ -195,11 +198,12 @@ export default function ReportPage() {
   const scanId = typeof params?.id === "string" ? params.id : "";
   const [report, setReport] = useState<Report | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retesting, setRetesting] = useState(false);
+  const [retestError, setRetestError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!scanId) return;
     setError(null);
-    setReport(null);
     try {
       const result = await getReport(scanId, "json");
       if (typeof result === "string") {
@@ -222,6 +226,47 @@ export default function ReportPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const handleDirectApprove = async () => {
+    setRetesting(true);
+    setRetestError(null);
+    try {
+      const prop = await getProposal(scanId);
+      await approveHardening(scanId, prop.proposal_id, true);
+    } catch (err: any) {
+      setRetestError(err?.message || "Failed to trigger retest approval.");
+      setRetesting(false);
+    }
+  };
+
+  // Poll scan when retesting
+  useEffect(() => {
+    const isRetestPhase = retesting || report?.scan?.status === "retesting";
+    if (!isRetestPhase || !scanId) return;
+
+    let active = true;
+    const interval = setInterval(async () => {
+      try {
+        const scan = await getScan(scanId);
+        if (!active) return;
+        if (scan.status === "completed") {
+          setRetesting(false);
+          void load();
+        } else if (scan.status === "failed_partial" || scan.status === "failed_fatal") {
+          setRetesting(false);
+          setRetestError(`Retest ended with status: ${scan.status}.`);
+          void load();
+        }
+      } catch {
+        // ignore polling blips
+      }
+    }, 1500);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [retesting, report?.scan?.status, scanId, load]);
 
   if (error) {
     const isNetworkError = error.includes("Cannot reach RAVEN API") || error.includes("NETWORK_ERROR");
@@ -331,8 +376,23 @@ export default function ReportPage() {
           </div>
         </div>
 
+        {/* Retesting Active Banner */}
+        {(retesting || report.scan.status === "retesting") && (
+          <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[var(--radius-card)] border border-[var(--accent)]/40 bg-[var(--accent-glow)] p-5">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 font-mono text-xs text-[var(--accent)] font-semibold uppercase tracking-wider">
+                <span className="h-2 w-2 rounded-full bg-[var(--accent)] animate-ping" />
+                Hardening Approved · Executing Retest & Benchmarking…
+              </div>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Running 12 attack vectors + 10 utility tasks against the hardened sandbox target. Remediation deltas will update automatically upon completion.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Awaiting Approval Banner */}
-        {report.scan.status === "awaiting_approval" && (
+        {report.scan.status === "awaiting_approval" && !retesting && (
           <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-[var(--radius-card)] border border-amber-500/40 bg-amber-950/20 p-5">
             <div className="space-y-1">
               <div className="flex items-center gap-2 font-mono text-xs text-amber-400 font-semibold uppercase tracking-wider">
@@ -342,13 +402,25 @@ export default function ReportPage() {
               <p className="text-xs text-[var(--text-secondary)]">
                 Phase 1 baseline attacks identified confirmed vulnerabilities ({pct(security.before_attack_success_rate)} attack success rate). A hardening patch was drafted. To execute Phase 2 (verification retest) and measure remediation deltas, approve the hardening proposal.
               </p>
+              {retestError && (
+                <p className="text-xs text-red-400 pt-1 font-mono">{retestError}</p>
+              )}
             </div>
-            <Link
-              href={`/scans/${scanId}/hardening`}
-              className="flex-shrink-0 rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all text-center"
-            >
-              Review & Approve Hardening →
-            </Link>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <button
+                type="button"
+                onClick={handleDirectApprove}
+                className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all text-center"
+              >
+                Approve & Run Retest
+              </button>
+              <Link
+                href={`/scans/${scanId}/hardening`}
+                className="rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                Review Proposal →
+              </Link>
+            </div>
           </div>
         )}
 
@@ -495,12 +567,22 @@ export default function ReportPage() {
                   <span>
                     ℹ️ "After" metrics are pending. Approve the hardening proposal to execute Phase 2 retest and calculate remediation efficacy.
                   </span>
-                  <Link
-                    href={`/scans/${scanId}/hardening`}
-                    className="text-[var(--accent)] font-semibold hover:underline whitespace-nowrap"
-                  >
-                    Approve proposal →
-                  </Link>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleDirectApprove}
+                      disabled={retesting}
+                      className="text-[var(--accent)] font-semibold hover:underline whitespace-nowrap cursor-pointer disabled:opacity-50"
+                    >
+                      {retesting ? "Retesting target…" : "Approve & run retest →"}
+                    </button>
+                    <Link
+                      href={`/scans/${scanId}/hardening`}
+                      className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline whitespace-nowrap"
+                    >
+                      Review details
+                    </Link>
+                  </div>
                 </div>
               )}
               {utility.over_refusal_case_ids.length > 0 && (

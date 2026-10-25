@@ -92,12 +92,13 @@ class ShopHelperLocalAdapter:
         self._reset_state()
 
     async def apply_temporary_policy(
-        self, policy: PolicyCandidate, prompt_patch: str | None = None
+        self, policy: PolicyCandidate | None, prompt_patch: str | None = None
     ) -> None:
         """Apply an approved hardening candidate to the temporary target only."""
         if prompt_patch:
             self._system_prompt = prompt_patch
-        self._gateway.apply_candidate(policy.model_dump())
+        if policy is not None:
+            self._gateway.apply_candidate(policy.model_dump())
 
     async def clear_temporary_policy(self) -> None:
         await self.reset()
