@@ -13,7 +13,7 @@ from app.domain.errors import InvalidTransition
 
 ALLOWED_TRANSITIONS: dict[ScanStatus, set[ScanStatus]] = {
     ScanStatus.CREATED: {ScanStatus.RECONNING, ScanStatus.FAILED_FATAL},
-    ScanStatus.RECONNING: {ScanStatus.ATTACKING, ScanStatus.FAILED_PARTIAL, ScanStatus.FAILED_FATAL},
+    ScanStatus.RECONNING: {ScanStatus.ATTACKING, ScanStatus.FAILED_PARTIAL, ScanStatus.FAILED_FATAL, ScanStatus.INCONCLUSIVE},
     ScanStatus.ATTACKING: {ScanStatus.JUDGING, ScanStatus.FAILED_PARTIAL, ScanStatus.FAILED_FATAL},
     ScanStatus.JUDGING: {
         ScanStatus.HARDENING_PROPOSED,

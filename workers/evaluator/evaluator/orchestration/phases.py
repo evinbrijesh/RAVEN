@@ -52,11 +52,17 @@ SEVERITY_ORDER = {
 
 
 class ScanEngine:
-    """Executes one scan end-to-end (minus the approval wait)."""
+    """Executes one scan end-to-end via LangGraph workflow (with tested direct fallback)."""
 
-    def __init__(self, repos: Repositories, fixtures_path: str | None = None) -> None:
+    def __init__(
+        self,
+        repos: Repositories,
+        fixtures_path: str | None = None,
+        use_graph: bool = True,
+    ) -> None:
         self._repos = repos
         self._fixtures_path = fixtures_path
+        self._use_graph = use_graph
         self._planner = AttackPlanner()
         settings = get_worker_settings()
         self._model_client = get_model_client(
@@ -66,6 +72,14 @@ class ScanEngine:
             base_url=settings.model_base_url,
         )
         self._model_name = settings.model_name
+        self._checkpointer = None
+        self._graph = None
+        if self._use_graph:
+            from evaluator.orchestration.checkpoint import SqliteCheckpointSaver
+            from evaluator.orchestration.graph import create_raven_graph
+
+            self._checkpointer = SqliteCheckpointSaver(self._repos.db)
+            self._graph = create_raven_graph(self, checkpointer=self._checkpointer)
 
     def _create_target(self, scan):
         return build_target(scan, self._fixtures_path)
@@ -74,6 +88,27 @@ class ScanEngine:
         scan = self._repos.scans.get(scan_id)
         if scan is None:
             raise RavenError(f"Scan '{scan_id}' not found.")
+
+        if self._use_graph and self._graph is not None:
+            from evaluator.orchestration.state import create_initial_state
+
+            config = {"configurable": {"thread_id": scan_id}}
+            initial_state = create_initial_state(
+                scan_id=scan_id,
+                target_id=scan.target.target_id,
+                scan_config=scan.config.model_dump(),
+            )
+            try:
+                await self._graph.ainvoke(initial_state, config=config)
+            except RavenError:
+                await self._fail(scan_id, ScanStatus.FAILED_FATAL)
+                raise
+            except Exception as exc:
+                self._emit(scan_id, EventKind.ERROR, {"error": str(exc), "graph_node": "engine"})
+                await self._fail(scan_id, ScanStatus.FAILED_FATAL)
+                raise
+            return
+
         budget = BudgetTracker(budget=scan.config.budget)
         target = self._create_target(scan)
 
@@ -96,10 +131,64 @@ class ScanEngine:
         scan = self._repos.scans.get(scan_id)
         if scan is None:
             raise RavenError(f"Scan '{scan_id}' not found.")
+
+        if _terminal(scan.status):
+            return
+
         proposal = self._repos.proposals.latest_for_scan(scan_id)
         if proposal is None:
             await self._fail(scan_id, ScanStatus.FAILED_PARTIAL)
             raise RavenError("No proposal to retest.")
+
+        target = self._create_target(scan)
+        if getattr(target, "mode", None) == "evaluation_only":
+            self._set_status(scan_id, ScanStatus.COMPLETED_WITHOUT_RETEST, 1.0)
+            self._emit(
+                scan_id,
+                EventKind.SCAN_COMPLETED,
+                {
+                    "status": "completed_without_retest",
+                    "reason": "External target is evaluation_only; remote hardening cannot be applied without an authorized staging contract.",
+                },
+            )
+            return
+
+        if self._use_graph and self._graph is not None:
+            from langgraph.types import Command
+
+            from evaluator.orchestration.state import create_initial_state
+
+            config = {"configurable": {"thread_id": scan_id}}
+            approval = self._repos.approvals.get_for_proposal(proposal.proposal_id)
+            resume_data = {
+                "approved": approval.approved if approval else True,
+                "approved_by": approval.approved_by if approval else "system",
+                "decision": approval.decision if approval else "approved",
+                "proposal_hash": approval.proposal_hash if approval else "",
+            }
+
+            try:
+                state_snapshot = await self._graph.aget_state(config)
+                if state_snapshot and state_snapshot.next:
+                    await self._graph.ainvoke(Command(resume=resume_data), config=config)
+                else:
+                    initial_state = create_initial_state(
+                        scan_id=scan_id,
+                        target_id=scan.target.target_id,
+                        scan_config=scan.config.model_dump(),
+                    )
+                    initial_state["approval_status"] = "approved" if resume_data["approved"] else "rejected"
+                    initial_state["hardening_proposal"] = proposal.model_dump()
+                    initial_state["approval_metadata"] = resume_data
+                    await self._graph.ainvoke(initial_state, config=config)
+            except RavenError:
+                await self._fail(scan_id, ScanStatus.FAILED_PARTIAL)
+                raise
+            except Exception as exc:
+                self._emit(scan_id, EventKind.ERROR, {"error": str(exc), "graph_node": "engine_retest"})
+                await self._fail(scan_id, ScanStatus.FAILED_PARTIAL)
+                raise
+            return
 
         budget = BudgetTracker(budget=scan.config.budget)
         target = self._create_target(scan)
@@ -167,6 +256,7 @@ class ScanEngine:
             self._emit(scan_id, EventKind.ERROR, {"error": str(exc)})
             await self._fail(scan_id, ScanStatus.FAILED_PARTIAL)
             raise
+
 
     # --- phases -----------------------------------------------------------
     async def _phase_recon(self, scan_id: str, target, budget: BudgetTracker):
