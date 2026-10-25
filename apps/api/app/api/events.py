@@ -58,3 +58,29 @@ async def stream_events(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/{scan_id}/events/history")
+def list_events(
+    scan_id: str, repos: Repositories = Depends(get_repositories)
+) -> dict[str, object]:
+    """Retrieve full persisted event history for a scan over HTTP."""
+    if repos.scans.get(scan_id) is None:
+        from fastapi import HTTPException, status
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "NOT_FOUND", "message": f"Scan '{scan_id}' not found."},
+        )
+    events = repos.events.list_for_scan(scan_id)
+    return {
+        "items": [
+            {
+                "event_id": e.event_id,
+                "kind": e.kind.value,
+                "created_at": e.created_at.isoformat(),
+                **e.payload,
+            }
+            for e in events
+        ]
+    }

@@ -17,8 +17,9 @@ import type {
 } from "./types";
 
 export const API_BASE_URL: string =
-  process.env.NEXT_PUBLIC_API_URL ??
-  (typeof window !== "undefined" ? "" : "http://localhost:8000");
+  typeof window !== "undefined"
+    ? ""
+    : (process.env.NEXT_PUBLIC_API_URL ?? process.env.RAVEN_API_URL ?? "http://localhost:8000");
 
 export class ApiRequestError extends Error {
   readonly status: number;
@@ -110,6 +111,14 @@ export function createScan(config: ScanConfig): Promise<CreateScanResponse> {
 
 export function getScan(scanId: string): Promise<ScanView> {
   return request<ScanView>(`/api/scans/${encodeURIComponent(scanId)}`);
+}
+
+export function getScanEvents(
+  scanId: string,
+): Promise<{ items: Array<Record<string, unknown>> }> {
+  return request<{ items: Array<Record<string, unknown>> }>(
+    `/api/scans/${encodeURIComponent(scanId)}/events/history`,
+  );
 }
 
 export function getFindings(scanId: string): Promise<FindingsResponse> {

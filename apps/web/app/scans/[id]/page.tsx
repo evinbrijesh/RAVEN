@@ -31,7 +31,7 @@ import {
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
 import ScanRadarPulse, { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
 import FrontierChart from "@/components/report/FrontierChart";
-import { getScan, getFindings, getProposal, approveHardening } from "@/lib/api-client";
+import { getScan, getFindings, getProposal, approveHardening, getScanEvents } from "@/lib/api-client";
 import { connectScanEvents } from "@/lib/sse-client";
 import type { TargetProfile, ScanEvent, Finding, ScanView, HardeningProposal, AttackCategory } from "@/lib/types";
 
@@ -442,9 +442,10 @@ export default function LiveScanPage() {
   const refreshScanData = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      const [scanData, findingsData] = await Promise.all([
+      const [scanData, findingsData, eventsData] = await Promise.all([
         getScan(scanId).catch(() => null),
         getFindings(scanId).catch(() => ({ items: [] })),
+        getScanEvents(scanId).catch(() => ({ items: [] })),
       ]);
 
       if (scanData) {
@@ -455,6 +456,16 @@ export default function LiveScanPage() {
       if (findingsData.items) {
         setFindings(findingsData.items);
         setRadarBlips(findingsToBlips(findingsData.items));
+      }
+
+      if (eventsData?.items?.length) {
+        const parsed = eventsData.items.map((raw) => {
+          const ts = raw.created_at
+            ? new Date(String(raw.created_at)).toLocaleTimeString()
+            : new Date().toLocaleTimeString();
+          return parseScanEvent(raw as unknown as ScanEvent, ts);
+        });
+        setEventsList(parsed);
       }
 
       if (scanData?.status === "awaiting_approval" || scanData?.status === "hardening_proposed") {
@@ -469,6 +480,23 @@ export default function LiveScanPage() {
   useEffect(() => {
     void refreshScanData();
   }, [refreshScanData]);
+
+  // Resilient live polling: while scan is running, poll every 2s
+  // so the UI never gets stuck even if SSE connection drops or is delayed
+  useEffect(() => {
+    const isTerminal =
+      scanView?.status === "completed" ||
+      scanView?.status === "completed_without_retest" ||
+      scanView?.status === "failed_fatal";
+
+    if (isTerminal) return;
+
+    const interval = setInterval(() => {
+      void refreshScanData();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [scanView?.status, refreshScanData]);
 
   // Connect to SSE stream for live real-time event updates
   useEffect(() => {

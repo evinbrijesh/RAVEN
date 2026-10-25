@@ -52,7 +52,7 @@ export function connectScanEvents(
   function open(): void {
     if (closed) return;
     setState("connecting");
-    source = new EventSource(url);
+    source = new EventSource(url, { withCredentials: true });
 
     source.onopen = () => {
       attempts = 0;
