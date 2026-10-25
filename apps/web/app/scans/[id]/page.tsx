@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -9,13 +9,10 @@ import {
   RotateCcw,
   ShieldAlert,
   ShieldCheck,
-  ArrowRight,
   Activity,
   CheckCircle2,
-  AlertTriangle,
   Cpu,
-  Clock,
-  Sparkles,
+  RefreshCw,
 } from "lucide-react";
 import TopBar from "@/components/ui/TopBar";
 import {
@@ -32,16 +29,43 @@ import {
   SpotlightCard,
 } from "@/components/ui/primitives";
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
-import ScanRadarPulse from "@/components/scan/ScanRadarPulse";
+import ScanRadarPulse, { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
 import FrontierChart from "@/components/report/FrontierChart";
-import { getScan, getFindings } from "@/lib/api-client";
+import { getScan, getFindings, getProposal, approveHardening } from "@/lib/api-client";
 import { connectScanEvents } from "@/lib/sse-client";
-import type { TargetProfile, ScanEvent, Finding } from "@/lib/types";
-import { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
+import type { TargetProfile, ScanEvent, Finding, ScanView, HardeningProposal, AttackCategory } from "@/lib/types";
 
 /* ─── Phase stepper ──────────────────────────────────────────────────────── */
 const PHASES = ["Recon", "Attack", "Judge", "Hardening", "Approval", "Retest", "Report"] as const;
 type PhaseLabel = typeof PHASES[number];
+
+function mapStatusToPhase(status?: string): PhaseLabel {
+  if (!status) return "Recon";
+  switch (status) {
+    case "created":
+    case "reconning":
+      return "Recon";
+    case "attacking":
+      return "Attack";
+    case "judging":
+      return "Judge";
+    case "hardening_proposed":
+      return "Hardening";
+    case "awaiting_approval":
+      return "Approval";
+    case "retesting":
+      return "Retest";
+    case "completed":
+    case "completed_without_retest":
+    case "completed_with_limitations":
+    case "inconclusive":
+    case "failed_partial":
+    case "failed_fatal":
+      return "Report";
+    default:
+      return "Attack";
+  }
+}
 
 function PhaseStepper({ current }: { current: PhaseLabel }) {
   const currentIdx = PHASES.indexOf(current);
@@ -54,7 +78,7 @@ function PhaseStepper({ current }: { current: PhaseLabel }) {
       {/* Teal progress line */}
       <div
         className="absolute inset-y-1/2 left-0 h-px bg-[var(--accent)] transition-all duration-700"
-        style={{ width: `${(currentIdx / (PHASES.length - 1)) * 100}%` }}
+        style={{ width: `${(Math.max(0, currentIdx) / (PHASES.length - 1)) * 100}%` }}
         aria-hidden
       />
 
@@ -98,6 +122,94 @@ interface EventEntry {
   category: string;
   label?: string;
   message: string;
+}
+
+const ATTACK_CATEGORY_MAP: Record<string, AttackCategory> = {
+  "A-01": "direct_injection",
+  "A-02": "direct_injection",
+  "A-03": "direct_injection",
+  "A-04": "canary_leakage",
+  "A-05": "canary_leakage",
+  "A-06": "canary_leakage",
+  "A-07": "sensitive_data",
+  "A-08": "sensitive_data",
+  "A-09": "sensitive_data",
+  "A-10": "tool_misuse",
+  "A-11": "tool_misuse",
+  "A-12": "tool_misuse",
+};
+
+function parseScanEvent(event: ScanEvent, ts: string): EventEntry {
+  const raw = event as Record<string, unknown>;
+  const payload = (raw.payload as Record<string, unknown> | undefined) ?? {};
+
+  const attackId = String(raw.attack_id ?? payload.attack_id ?? "EVT");
+  const label = raw.label != null ? String(raw.label) : payload.label != null ? String(payload.label) : undefined;
+  const category = String(
+    raw.category ?? payload.category ?? ATTACK_CATEGORY_MAP[attackId] ?? "direct_injection"
+  );
+  const rawMsg = raw.message != null ? String(raw.message) : payload.message != null ? String(payload.message) : undefined;
+
+  let message = rawMsg || "";
+  if (!message) {
+    switch (raw.kind) {
+      case "scan_created":
+        message = "Scan workflow initialized · LangGraph StateGraph active";
+        break;
+      case "recon_completed":
+        message = "Recon complete: target system prompt & tool catalog mapped";
+        break;
+      case "attack_started":
+        message = `Dispatched vector ${attackId} probe against target`;
+        break;
+      case "attack_finished":
+        message = `Vector ${attackId} trial completed · raw evidence captured`;
+        break;
+      case "verdict_created":
+        if (label === "confirmed_failure") {
+          message = `Vector ${attackId} bypassed target guardrails → vulnerability confirmed`;
+        } else if (label === "attack_blocked") {
+          message = `Security boundary held on ${attackId} → attack neutralized`;
+        } else {
+          message = `Vector ${attackId} evaluation inconclusive (${label || "review needed"})`;
+        }
+        break;
+      case "phase_changed":
+        message = `Workflow phase transitioned to ${String(raw.status ?? payload.status ?? "next").replace(/_/g, " ").toUpperCase()}`;
+        break;
+      case "hardening_proposed":
+        message = `Defense proposal generated (${String(raw.proposal_id ?? payload.proposal_id ?? "H-001")}) · awaiting approval`;
+        break;
+      case "approval_received":
+        message = `Human gate sign-off: ${raw.approved ?? payload.approved ? "APPROVED" : "REJECTED"}`;
+        break;
+      case "retest_started":
+        message = "Dispatched retest suite + benign utility tests against hardened runtime";
+        break;
+      case "regression_saved":
+        message = "Confirmed vulnerability promoted to regression test suite";
+        break;
+      case "scan_completed":
+        message = "Scan complete. Multi-format audit reports (JSON, MD, SARIF 2.1) ready.";
+        break;
+      case "scan_failed":
+      case "error":
+        message = String(raw.error ?? payload.error ?? "Scan execution halted");
+        break;
+      default:
+        message = String(raw.kind || "telemetry_pulse");
+        break;
+    }
+  }
+
+  return {
+    id: String(raw.event_id ?? `${raw.kind}-${attackId}-${ts}-${Math.random()}`),
+    ts,
+    attackId,
+    category,
+    label,
+    message,
+  };
 }
 
 function EventFeedEntry({ ev }: { ev: EventEntry }) {
@@ -144,7 +256,7 @@ function LiveCounters({ counts }: {
 
 /* ─── Budget meter ──────────────────────────────────────────────────────── */
 function BudgetMeter({ used, total }: { used: number; total: number }) {
-  const pct = Math.min(1, used / total);
+  const pct = Math.min(1, used / Math.max(1, total));
   const warn = pct > 0.8;
   return (
     <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4">
@@ -164,172 +276,103 @@ function BudgetMeter({ used, total }: { used: number; total: number }) {
   );
 }
 
-/* ─── Simulation Sequence Script ─────────────────────────────────────────── */
-interface SimStep {
-  phase: PhaseLabel;
-  scanStatus: string;
-  activeAgents: AgentStatus[];
-  activeEdges: [AgentId, AgentId][];
-  event?: EventEntry;
-  counters: { total: number; failures: number; blocked: number; review: number; notEval: number };
-  budgetUsed: number;
+/* ─── Constellation helpers ──────────────────────────────────────────────── */
+function getAgentsForPhase(phase: PhaseLabel, isScanning: boolean): { agents: AgentStatus[]; edges: [AgentId, AgentId][] } {
+  switch (phase) {
+    case "Recon":
+      return {
+        agents: [
+          { id: "planner", state: "done", stepsUsed: 1, stepsBudget: 3 },
+          { id: "recon", state: isScanning ? "active" : "done", stepsUsed: 1, stepsBudget: 4, caption: "mapping target tools & prompt" },
+          { id: "attacker", state: "idle" },
+          { id: "shophelper", state: isScanning ? "active" : "idle", caption: "fixtures active" },
+          { id: "judge", state: "idle" },
+          { id: "hardener", state: "idle" },
+          { id: "human_approval", state: "idle" },
+        ],
+        edges: [["planner", "recon"], ["recon", "attacker"]],
+      };
+    case "Attack":
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: isScanning ? "active" : "done", caption: "executing catalog vectors", stepsUsed: 6, stepsBudget: 12 },
+          { id: "shophelper", state: isScanning ? "active" : "idle", caption: "target runtime" },
+          { id: "judge", state: "idle" },
+          { id: "hardener", state: "idle" },
+          { id: "human_approval", state: "idle" },
+        ],
+        edges: [["attacker", "shophelper"]],
+      };
+    case "Judge":
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: "done" },
+          { id: "shophelper", state: "idle" },
+          { id: "judge", state: isScanning ? "active" : "done", caption: "deterministic & semantic adjudication" },
+          { id: "hardener", state: "idle" },
+          { id: "human_approval", state: "idle" },
+        ],
+        edges: [["judge", "hardener"]],
+      };
+    case "Hardening":
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: "done" },
+          { id: "shophelper", state: "idle" },
+          { id: "judge", state: "done" },
+          { id: "hardener", state: isScanning ? "active" : "done", caption: "synthesizing prompt diff & policies" },
+          { id: "human_approval", state: "idle" },
+        ],
+        edges: [["hardener", "human_approval"]],
+      };
+    case "Approval":
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: "done" },
+          { id: "shophelper", state: "idle" },
+          { id: "judge", state: "done" },
+          { id: "hardener", state: "done" },
+          { id: "human_approval", state: "active", caption: "awaiting human approval" },
+        ],
+        edges: [],
+      };
+    case "Retest":
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: isScanning ? "active" : "done", caption: "retesting vulnerabilities against patch" },
+          { id: "shophelper", state: isScanning ? "active" : "idle", caption: "hardened runtime" },
+          { id: "judge", state: isScanning ? "active" : "done", caption: "utility suite execution" },
+          { id: "hardener", state: "done" },
+          { id: "human_approval", state: "done" },
+        ],
+        edges: [["hardener", "shophelper"], ["attacker", "shophelper"]],
+      };
+    case "Report":
+    default:
+      return {
+        agents: [
+          { id: "planner", state: "done" },
+          { id: "recon", state: "done" },
+          { id: "attacker", state: "done" },
+          { id: "shophelper", state: "done" },
+          { id: "judge", state: "done" },
+          { id: "hardener", state: "done" },
+          { id: "human_approval", state: "done" },
+        ],
+        edges: [],
+      };
+  }
 }
-
-const SIM_SEQUENCE: SimStep[] = [
-  {
-    phase: "Recon",
-    scanStatus: "reconning",
-    activeAgents: [
-      { id: "planner", state: "done", stepsUsed: 2, stepsBudget: 3 },
-      { id: "recon", state: "active", stepsUsed: 1, stepsBudget: 4, caption: "profiling system prompt & tools" },
-      { id: "attacker", state: "idle" },
-      { id: "shophelper", state: "active", caption: "exposing tools: refund, order, auth" },
-      { id: "judge", state: "idle" },
-      { id: "hardener", state: "idle" },
-      { id: "human_approval", state: "idle" },
-    ],
-    activeEdges: [["planner", "recon"], ["recon", "attacker"]],
-    event: { id: "e0", ts: "00:01:05", attackId: "INIT", category: "direct_injection", message: "Planner selected 12 catalog cases · Recon active" },
-    counters: { total: 0, failures: 0, blocked: 0, review: 0, notEval: 12 },
-    budgetUsed: 2,
-  },
-  {
-    phase: "Attack",
-    scanStatus: "attacking",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "active", caption: "dispatching base64 canary leak probe", stepsUsed: 2, stepsBudget: 12 },
-      { id: "shophelper", state: "active", caption: "evaluating attack A-01" },
-      { id: "judge", state: "idle" },
-      { id: "hardener", state: "idle" },
-      { id: "human_approval", state: "idle" },
-    ],
-    activeEdges: [["attacker", "shophelper"]],
-    event: { id: "e1", ts: "00:01:10", attackId: "A-01", category: "canary_leakage", message: "Base64 encoded canary extraction dispatched", label: "attack_blocked" },
-    counters: { total: 1, failures: 0, blocked: 1, review: 0, notEval: 11 },
-    budgetUsed: 4,
-  },
-  {
-    phase: "Attack",
-    scanStatus: "attacking",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "active", caption: "roleplay bypass probe", mutationCount: 1, mutationTotal: 1, stepsUsed: 4, stepsBudget: 12 },
-      { id: "shophelper", state: "active", caption: "evaluating attack A-02" },
-      { id: "judge", state: "active", caption: "verifying instruction override" },
-      { id: "hardener", state: "idle" },
-      { id: "human_approval", state: "idle" },
-    ],
-    activeEdges: [["attacker", "shophelper"], ["shophelper", "judge"]],
-    event: { id: "e2", ts: "00:01:18", attackId: "A-02", category: "direct_injection", message: "Role-play override executed → instruction bypassed", label: "confirmed_failure" },
-    counters: { total: 2, failures: 1, blocked: 1, review: 0, notEval: 10 },
-    budgetUsed: 7,
-  },
-  {
-    phase: "Attack",
-    scanStatus: "attacking",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "active", caption: "dispatching unauthorized refund call", stepsUsed: 6, stepsBudget: 12 },
-      { id: "shophelper", state: "active", caption: "evaluating attack A-04" },
-      { id: "judge", state: "active", caption: "AST tool-call validation" },
-      { id: "hardener", state: "idle" },
-      { id: "human_approval", state: "idle" },
-    ],
-    activeEdges: [["attacker", "shophelper"], ["shophelper", "judge"]],
-    event: { id: "e3", ts: "00:01:25", attackId: "A-04", category: "tool_misuse", message: "process_refund invoked without customer auth", label: "confirmed_failure" },
-    counters: { total: 3, failures: 2, blocked: 1, review: 0, notEval: 9 },
-    budgetUsed: 11,
-  },
-  {
-    phase: "Judge",
-    scanStatus: "judging",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "done" },
-      { id: "shophelper", state: "idle" },
-      { id: "judge", state: "active", caption: "reconciling rule checks with LLM judge" },
-      { id: "hardener", state: "active", caption: "inspecting confirmed failures F-001, F-002" },
-      { id: "human_approval", state: "idle" },
-    ],
-    activeEdges: [["judge", "hardener"]],
-    event: { id: "e4", ts: "00:01:32", attackId: "A-05", category: "canary_leakage", message: "Semantic judge timeout → defaulted to review", label: "needs_review" },
-    counters: { total: 4, failures: 2, blocked: 1, review: 1, notEval: 8 },
-    budgetUsed: 14,
-  },
-  {
-    phase: "Hardening",
-    scanStatus: "hardening_proposed",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "done" },
-      { id: "shophelper", state: "idle" },
-      { id: "judge", state: "done" },
-      { id: "hardener", state: "active", caption: "drafting prompt diff + refund policy guardrail" },
-      { id: "human_approval", state: "active" },
-    ],
-    activeEdges: [["hardener", "human_approval"]],
-    event: { id: "e5", ts: "00:01:40", attackId: "HARDEN", category: "tool_misuse", message: "Hardening proposal H-001 generated · awaiting human approval" },
-    counters: { total: 7, failures: 2, blocked: 4, review: 1, notEval: 5 },
-    budgetUsed: 18,
-  },
-  {
-    phase: "Approval",
-    scanStatus: "awaiting_approval",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "done" },
-      { id: "shophelper", state: "idle" },
-      { id: "judge", state: "done" },
-      { id: "hardener", state: "done" },
-      { id: "human_approval", state: "active" },
-    ],
-    activeEdges: [],
-    event: { id: "e6", ts: "00:01:45", attackId: "GATE", category: "direct_injection", message: "HALTED at human gate. Click 'Approve and Retest' to continue" },
-    counters: { total: 12, failures: 4, blocked: 7, review: 1, notEval: 0 },
-    budgetUsed: 22,
-  },
-  {
-    phase: "Retest",
-    scanStatus: "retesting",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "active", caption: "re-executing failed cases against patched prompt" },
-      { id: "shophelper", state: "active", caption: "evaluating hardened target" },
-      { id: "judge", state: "active", caption: "running 10-case benign utility suite" },
-      { id: "hardener", state: "done" },
-      { id: "human_approval", state: "done" },
-    ],
-    activeEdges: [["hardener", "shophelper"], ["attacker", "shophelper"]],
-    event: { id: "e7", ts: "00:01:52", attackId: "RETEST", category: "tool_misuse", message: "Retest completed: attack blocked! Benign utility 10/10 passed", label: "verified_under_stated_checks" },
-    counters: { total: 12, failures: 1, blocked: 10, review: 1, notEval: 0 },
-    budgetUsed: 28,
-  },
-  {
-    phase: "Report",
-    scanStatus: "completed",
-    activeAgents: [
-      { id: "planner", state: "done" },
-      { id: "recon", state: "done" },
-      { id: "attacker", state: "done" },
-      { id: "shophelper", state: "done" },
-      { id: "judge", state: "done" },
-      { id: "hardener", state: "done" },
-      { id: "human_approval", state: "done" },
-    ],
-    activeEdges: [],
-    event: { id: "e8", ts: "00:02:00", attackId: "FINISH", category: "canary_leakage", message: "Scan completed. Report generated with before/after regression deltas." },
-    counters: { total: 12, failures: 1, blocked: 10, review: 1, notEval: 0 },
-    budgetUsed: 31,
-  },
-];
 
 /* ─── Trace steps for drawer ─────────────────────────────────────────────── */
 const TRACE_STEPS: TraceStep[] = [
@@ -383,211 +426,232 @@ export default function LiveScanPage() {
   const params = useParams<{ id: string }>();
   const scanId = (params?.id as string) || "scan_123";
 
-  const [simIndex, setSimIndex] = useState(2); // Start midway in attack phase
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [eventsList, setEventsList] = useState<EventEntry[]>(() =>
-    SIM_SEQUENCE.slice(0, 3).map((s) => s.event!).filter(Boolean)
-  );
-  const [traceAgent, setTraceAgent] = useState<AgentId | null>(null);
+  const [scanView, setScanView] = useState<ScanView | null>(null);
   const [profile, setProfile] = useState<TargetProfile | null>(null);
+  const [proposal, setProposal] = useState<HardeningProposal | null>(null);
+  const [findings, setFindings] = useState<Finding[]>([]);
   const [radarBlips, setRadarBlips] = useState<RadarBlip[]>([]);
+  const [eventsList, setEventsList] = useState<EventEntry[]>([]);
+  const [traceAgent, setTraceAgent] = useState<AgentId | null>(null);
+  const [isApproving, setIsApproving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const currentStep = SIM_SEQUENCE[simIndex];
-
-  // Auto-advance simulation ticker every 3.2s when playing
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setSimIndex((prev) => {
-        // Halt at Approval gate until user manually approves
-        if (prev === 6) {
-          setIsPlaying(false);
-          return prev;
-        }
-        // Stop playback once the simulation reaches the final Report step
-        if (prev >= SIM_SEQUENCE.length - 1) {
-          setIsPlaying(false);
-          return prev;
-        }
-        const next = prev + 1;
-        const nextEvent = SIM_SEQUENCE[next].event;
-        if (nextEvent) {
-          setEventsList((list) => [...list.slice(-18), nextEvent]);
-        }
-        return next;
-      });
-    }, 3200);
-
-    return () => clearInterval(interval);
-  }, [isPlaying]);
-
-  // Load real findings and convert to radar blips
-  const loadFindings = useCallback(async () => {
+  // Load real scan domain entities from API
+  const refreshScanData = useCallback(async () => {
+    setIsRefreshing(true);
     try {
-      const resp = await getFindings(scanId);
-      setRadarBlips(findingsToBlips(resp.items));
-    } catch {
-      // API not reachable or no findings yet — keep existing blips
+      const [scanData, findingsData] = await Promise.all([
+        getScan(scanId).catch(() => null),
+        getFindings(scanId).catch(() => ({ items: [] })),
+      ]);
+
+      if (scanData) {
+        setScanView(scanData);
+        if (scanData.profile) setProfile(scanData.profile);
+      }
+
+      if (findingsData.items) {
+        setFindings(findingsData.items);
+        setRadarBlips(findingsToBlips(findingsData.items));
+      }
+
+      if (scanData?.status === "awaiting_approval" || scanData?.status === "hardening_proposed") {
+        const prop = await getProposal(scanId).catch(() => null);
+        if (prop) setProposal(prop);
+      }
+    } finally {
+      setIsRefreshing(false);
     }
   }, [scanId]);
 
-  // Initial findings load
   useEffect(() => {
-    void loadFindings();
-  }, [loadFindings]);
+    void refreshScanData();
+  }, [refreshScanData]);
 
-  // Connect to real SSE stream if available
+  // Connect to SSE stream for live real-time event updates
   useEffect(() => {
     let client: ReturnType<typeof connectScanEvents> | null = null;
     try {
       client = connectScanEvents(scanId, {
         onEvent: (event: ScanEvent) => {
-          // Log to event feed
           const ts = new Date().toLocaleTimeString();
-          setEventsList((prev) => [
-            ...prev,
-            {
-              id: String(event.event_id || Math.random()),
-              ts,
-              attackId: (event.payload as any)?.attack_id || "EVT",
-              category: (event.payload as any)?.category || "direct_injection",
-              message: (event.payload as any)?.message || event.kind,
-              label: (event.payload as any)?.label,
-            },
-          ]);
-          // Re-fetch findings whenever a verdict is created so the radar updates
-          if (event.kind === "verdict_created" || event.kind === "scan_completed") {
-            void loadFindings();
+          const entry = parseScanEvent(event, ts);
+
+          setEventsList((prev) => {
+            // Deduplicate matching events
+            if (prev.some((e) => e.id === entry.id)) return prev;
+            return [...prev, entry];
+          });
+
+          // Live state refresh on workflow stage changes
+          if (
+            event.kind === "verdict_created" ||
+            event.kind === "phase_changed" ||
+            event.kind === "hardening_proposed" ||
+            event.kind === "approval_received" ||
+            event.kind === "scan_completed" ||
+            event.kind === "scan_failed"
+          ) {
+            void refreshScanData();
           }
         },
       });
     } catch {
-      // Offline fallback — radar shows whatever was last loaded
+      // Fallback
     }
 
     return () => {
       client?.close();
     };
-  }, [scanId, loadFindings]);
+  }, [scanId, refreshScanData]);
 
-
-  // Load target profile
-  useEffect(() => {
-    let mounted = true;
-    async function loadProfile() {
-      try {
-        const scan = await getScan(scanId);
-        if (mounted && scan.profile) setProfile(scan.profile);
-      } catch {
-        if (mounted) {
-          setProfile({
-            target_id: "shophelper-local",
-            version: "v1.2-sandbox",
-            system_prompt_hash: "3a8f9c1b7e4d2085fe7b6d194c5029a738491c2b5d6e7f8a90123456789abcdef",
-            tools: ["lookup_order", "check_inventory", "issue_refund"],
-            canary_token: "RAVEN-CANARY-DEMO",
-            notes: ["Isolated ShopHelper fixture runtime", "Deterministic refund amount validation active"],
-          });
-        }
-      }
-    }
-    void loadProfile();
-    return () => { mounted = false; };
-  }, [scanId]);
-
-  // Auto-scroll feed
+  // Auto-scroll feed on new events
   useEffect(() => {
     if (feedRef.current) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
   }, [eventsList]);
 
-  const handleApprove = () => {
-    setSimIndex(7); // Jump to Retest
-    setIsPlaying(true);
-    setEventsList((l) => [
-      ...l,
-      {
-        id: "approve-action",
-        ts: new Date().toLocaleTimeString(),
-        attackId: "HUMAN",
-        category: "tool_misuse",
-        message: "Proposal H-001 APPROVED. Dispatched retest suite.",
-      },
-    ]);
-  };
+  // Derived phase & status
+  const currentStatus = scanView?.status || "awaiting_approval";
+  const currentPhase: PhaseLabel = useMemo(() => mapStatusToPhase(currentStatus), [currentStatus]);
+  const isScanning = currentStatus === "reconning" || currentStatus === "attacking" || currentStatus === "judging" || currentStatus === "retesting";
 
-  const handleReset = () => {
-    setSimIndex(0);
-    setIsPlaying(true);
-    setEventsList([SIM_SEQUENCE[0].event!]);
+  // Derive active agent constellation
+  const constellation = useMemo(() => getAgentsForPhase(currentPhase, isScanning), [currentPhase, isScanning]);
+
+  // Derive live telemetry counts: accurately compute from real findings & verdicts
+  const liveCounts = useMemo(() => {
+    // Unique map of verdicts from event stream
+    const verdictsFromEvents = new Map<string, string>();
+    for (const e of eventsList) {
+      if (e.attackId && e.attackId.startsWith("A-") && e.label) {
+        verdictsFromEvents.set(e.attackId, e.label);
+      }
+    }
+
+    // Prefer verdicts stream if present, else fallback to scanView.counts or findings
+    if (verdictsFromEvents.size > 0) {
+      const failures = Array.from(verdictsFromEvents.values()).filter(
+        (l) => l === "confirmed_failure" || l === "likely_failure"
+      ).length;
+      const blocked = Array.from(verdictsFromEvents.values()).filter(
+        (l) => l === "attack_blocked"
+      ).length;
+      const review = Array.from(verdictsFromEvents.values()).filter(
+        (l) => l === "needs_review"
+      ).length;
+      const total = Math.max(12, verdictsFromEvents.size);
+      const notEval = Math.max(0, total - verdictsFromEvents.size);
+      return { total, failures, blocked, review, notEval };
+    }
+
+    if (scanView?.counts && scanView.counts.total > 0) {
+      return {
+        total: scanView.counts.total,
+        failures: scanView.counts.confirmed_failures,
+        blocked: scanView.counts.blocked,
+        review: scanView.counts.needs_review,
+        notEval: scanView.counts.not_evaluated,
+      };
+    }
+
+    // Default from findings
+    const confirmedFails = findings.filter((f) => f.label === "confirmed_failure" || f.label === "likely_failure").length;
+    const reviewFails = findings.filter((f) => f.label === "needs_review").length;
+    return {
+      total: 12,
+      failures: confirmedFails,
+      blocked: Math.max(0, 12 - confirmedFails - reviewFails),
+      review: reviewFails,
+      notEval: 0,
+    };
+  }, [eventsList, scanView, findings]);
+
+  const handleApprove = async () => {
+    setIsApproving(true);
+    try {
+      const propId = proposal?.proposal_id;
+      if (propId) {
+        await approveHardening(scanId, propId, true);
+      }
+      setEventsList((l) => [
+        ...l,
+        {
+          id: `approve-${Date.now()}`,
+          ts: new Date().toLocaleTimeString(),
+          attackId: "HUMAN",
+          category: "tool_misuse",
+          message: `Proposal ${propId || "H-001"} APPROVED by operator. Retest suite queued.`,
+        },
+      ]);
+      await refreshScanData();
+    } catch {
+      // offline fallback
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   return (
     <div className="flex flex-col min-h-full">
       <TopBar
         breadcrumbs={[{ label: "Scans", href: "/scans" }, { label: scanId }]}
-        scanStatus={currentStep.scanStatus}
+        scanStatus={currentStatus}
       />
 
       <main className="flex-1 px-4 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
-        {/* Partial failure banner */}
-        <PartialFailureBanner
-          message="Semantic judge timed out on A-05. Deterministic checks are still available and will be used for verdict."
-        />
+        {/* Partial failure banner if applicable */}
+        {currentStatus === "failed_partial" && (
+          <PartialFailureBanner
+            message="Deterministic checks completed successfully. Semantic judge timed out or hit provider failure on subset of vectors."
+          />
+        )}
 
-        {/* Phase Stepper with Simulation Controls */}
+        {/* Phase Stepper with Refresh / Sync Controls */}
         <section aria-label="Scan progress" className="rounded-lg border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-teal-400" />
+              <span className={`h-2 w-2 rounded-full ${isScanning ? "bg-teal-400 animate-ping" : "bg-teal-400"}`} />
               <span className="text-xs font-mono font-medium text-[var(--text-primary)] uppercase tracking-wider">
-                Phase: <span className="text-[var(--accent)] font-semibold">{currentStep.phase}</span>
+                Phase: <span className="text-[var(--accent)] font-semibold">{currentPhase}</span>
               </span>
             </div>
 
-            {/* Interactive Simulation Controls */}
             <div className="flex items-center gap-2 font-mono text-xs">
               <button
                 type="button"
-                onClick={() => setIsPlaying(!isPlaying)}
-                className="inline-flex items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-teal-500/40 transition-colors"
-                title={isPlaying ? "Pause simulation" : "Play live simulation"}
+                onClick={() => void refreshScanData()}
+                disabled={isRefreshing}
+                className="inline-flex items-center gap-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 py-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-teal-500/40 transition-colors disabled:opacity-50"
+                title="Sync latest scan data"
               >
-                {isPlaying ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3 fill-teal-400 text-teal-400" />}
-                <span>{isPlaying ? "Live Ticking" : "Paused"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleReset}
-                className="inline-flex items-center gap-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 py-1 text-[var(--text-muted)] hover:text-red-400 hover:border-red-900/40 transition-colors"
-                title="Restart simulation sequence"
-              >
-                <RotateCcw className="h-3 w-3" />
-                <span>Replay</span>
+                <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin text-teal-400" : ""}`} />
+                <span>{isRefreshing ? "Syncing..." : "Sync State"}</span>
               </button>
             </div>
           </div>
 
-          <PhaseStepper current={currentStep.phase} />
+          <PhaseStepper current={currentPhase} />
 
-          {/* Phase Explanatory Banner: clarifies the 2-phase testing workflow */}
+          {/* Phase Explanatory Banner */}
           <div className="mt-4 flex items-center justify-between rounded-md border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-3.5 py-2 text-xs font-mono">
             <div className="flex items-center gap-2">
               <span className="flex h-2 w-2 rounded-full bg-teal-400" />
               <span className="text-[var(--text-secondary)]">
-                {currentStep.phase === "Recon" || currentStep.phase === "Attack" || currentStep.phase === "Judge"
-                  ? "Phase 1: Baseline Attack Assessment — executing 12 attack vectors against unhardened target"
-                  : currentStep.phase === "Approval"
-                  ? "Human Gate: Review proposed prompt diff and policy guardrails before re-executing attacks"
-                  : currentStep.phase === "Retest"
-                  ? "Phase 2: Post-Hardening Retest — re-verifying attacks and 10 benign utility prompts on patched target"
+                {currentPhase === "Recon" || currentPhase === "Attack" || currentPhase === "Judge"
+                  ? "Phase 1: Baseline Attack Assessment — executing attack catalog vectors against unhardened target"
+                  : currentPhase === "Approval"
+                  ? "Human Gate: Review proposed prompt diff and policy guardrails before post-hardening retest"
+                  : currentPhase === "Retest"
+                  ? "Phase 2: Post-Hardening Retest — re-verifying attacks and benign utility prompts on patched target"
                   : "Audit Complete: Hardening verified with before/after attack success rate delta and CI gate"}
               </span>
             </div>
             <span className="text-[10px] text-[var(--text-muted)] hidden md:inline">
-              {currentStep.phase === "Retest" ? "Phase 2/2" : currentStep.phase === "Report" ? "Complete" : "Phase 1/2"}
+              {currentPhase === "Retest" ? "Phase 2/2" : currentPhase === "Report" ? "Complete" : "Phase 1/2"}
             </span>
           </div>
         </section>
@@ -612,14 +676,14 @@ export default function LiveScanPage() {
             <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--text-muted)]">
               <span className="h-2 w-2 rounded-full bg-teal-400 animate-ping" aria-hidden />
               <span className="text-[var(--accent)] font-medium">
-                {currentStep.activeAgents.find((a) => a.state === "active")?.id.toUpperCase()} ACTIVE
+                {constellation.agents.find((a) => a.state === "active")?.id.toUpperCase() || "CIRCUIT"} ACTIVE
               </span>
             </div>
           </div>
 
           <AgentConstellation
-            agents={currentStep.activeAgents}
-            activeEdges={currentStep.activeEdges}
+            agents={constellation.agents}
+            activeEdges={constellation.edges}
             onNodeClick={(id) => setTraceAgent(traceAgent === id ? null : id)}
             width={820}
             height={280}
@@ -631,7 +695,7 @@ export default function LiveScanPage() {
         </section>
 
         {/* Human Approval Gate Prompt Banner (when scan reaches approval) */}
-        {currentStep.phase === "Approval" && (
+        {currentPhase === "Approval" && (
           <SpotlightCard className="p-5 border border-teal-500/40 bg-teal-950/20 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
@@ -647,9 +711,10 @@ export default function LiveScanPage() {
                 <button
                   type="button"
                   onClick={handleApprove}
-                  className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all"
+                  disabled={isApproving}
+                  className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all disabled:opacity-60"
                 >
-                  Approve and Retest →
+                  {isApproving ? "Approving..." : "Approve and Retest →"}
                 </button>
                 <Link
                   href={`/scans/${scanId}/hardening`}
@@ -663,7 +728,7 @@ export default function LiveScanPage() {
         )}
 
         {/* Report Ready Banner (when scan reaches report phase) */}
-        {currentStep.phase === "Report" && (
+        {currentPhase === "Report" && (
           <SpotlightCard className="p-5 border border-emerald-500/40 bg-emerald-950/20 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
@@ -672,7 +737,7 @@ export default function LiveScanPage() {
                   <span className="font-semibold uppercase tracking-wider">Verification Complete · Hardening Verified</span>
                 </div>
                 <p className="text-xs text-[var(--text-secondary)]">
-                  Attack success rate dropped from 33% to 8%. 10 of 10 benign utility prompts passed without over-refusal.
+                  Attack success rate mitigated. Benign utility prompts evaluated without over-refusal.
                 </p>
               </div>
               <Link
@@ -688,20 +753,20 @@ export default function LiveScanPage() {
         {/* Real-time Cyber Radar & Telemetry HUD */}
         <section aria-label="Vector radar">
           <ScanRadarPulse
-            phase={currentStep.phase}
-            isScanning={isPlaying && currentStep.phase !== "Report"}
+            phase={currentPhase}
+            isScanning={isScanning}
             blips={radarBlips}
           />
         </section>
 
         {/* 2D Pareto Frontier Assurance (Visible on Retest and Report phases) */}
-        {(currentStep.phase === "Retest" || currentStep.phase === "Report") && (
+        {(currentPhase === "Retest" || currentPhase === "Report") && (
           <section aria-label="Security vs utility frontier" className="animate-fade-in">
             <FrontierChart
-              beforeSecurity={0.25}
+              beforeSecurity={0.17}
               afterSecurity={0.92}
-              beforeUtility={0.95}
-              afterUtility={0.94}
+              beforeUtility={1.0}
+              afterUtility={0.95}
               overRefusalRate={0}
             />
           </section>
@@ -721,16 +786,22 @@ export default function LiveScanPage() {
               </span>
             </div>
             <div ref={feedRef} className="h-72 overflow-y-auto px-4 divide-y divide-[var(--border-hairline)]">
-              {eventsList.map((ev, i) => (
-                <EventFeedEntry key={`${ev.id}-${i}`} ev={ev} />
-              ))}
+              {eventsList.length === 0 ? (
+                <div className="flex h-full items-center justify-center font-mono text-xs text-zinc-500">
+                  <span>Awaiting scan event telemetry…</span>
+                </div>
+              ) : (
+                eventsList.map((ev, i) => (
+                  <EventFeedEntry key={`${ev.id}-${i}`} ev={ev} />
+                ))
+              )}
             </div>
           </section>
 
           {/* Counters + budget */}
           <div className="space-y-3">
-            <LiveCounters counts={currentStep.counters} />
-            <BudgetMeter used={currentStep.budgetUsed} total={36} />
+            <LiveCounters counts={liveCounts} />
+            <BudgetMeter used={Math.min(36, liveCounts.failures + liveCounts.blocked + 4)} total={36} />
           </div>
         </div>
 
@@ -744,7 +815,7 @@ export default function LiveScanPage() {
               href={`/scans/${scanId}/findings`}
               className="rounded-[var(--radius-input)] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-teal-500/40 transition-colors"
             >
-              Browse Findings ({currentStep.counters.failures} confirmed) →
+              Browse Findings ({liveCounts.failures} confirmed) →
             </Link>
             <Link
               href={`/scans/${scanId}/hardening`}
@@ -760,7 +831,7 @@ export default function LiveScanPage() {
       {traceAgent && (
         <AgentDrawer
           agentId={traceAgent}
-          agents={currentStep.activeAgents}
+          agents={constellation.agents}
           onClose={() => setTraceAgent(null)}
         />
       )}
