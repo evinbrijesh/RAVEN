@@ -34,9 +34,10 @@ import {
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
 import ScanRadarPulse from "@/components/scan/ScanRadarPulse";
 import FrontierChart from "@/components/report/FrontierChart";
-import { getScan } from "@/lib/api-client";
+import { getScan, getFindings } from "@/lib/api-client";
 import { connectScanEvents } from "@/lib/sse-client";
-import type { TargetProfile, ScanEvent } from "@/lib/types";
+import type { TargetProfile, ScanEvent, Finding } from "@/lib/types";
+import { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
 
 /* ─── Phase stepper ──────────────────────────────────────────────────────── */
 const PHASES = ["Recon", "Attack", "Judge", "Hardening", "Approval", "Retest", "Report"] as const;
@@ -389,6 +390,7 @@ export default function LiveScanPage() {
   );
   const [traceAgent, setTraceAgent] = useState<AgentId | null>(null);
   const [profile, setProfile] = useState<TargetProfile | null>(null);
+  const [radarBlips, setRadarBlips] = useState<RadarBlip[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const currentStep = SIM_SEQUENCE[simIndex];
@@ -420,13 +422,28 @@ export default function LiveScanPage() {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
+  // Load real findings and convert to radar blips
+  const loadFindings = useCallback(async () => {
+    try {
+      const resp = await getFindings(scanId);
+      setRadarBlips(findingsToBlips(resp.items));
+    } catch {
+      // API not reachable or no findings yet — keep existing blips
+    }
+  }, [scanId]);
+
+  // Initial findings load
+  useEffect(() => {
+    void loadFindings();
+  }, [loadFindings]);
+
   // Connect to real SSE stream if available
   useEffect(() => {
     let client: ReturnType<typeof connectScanEvents> | null = null;
     try {
       client = connectScanEvents(scanId, {
         onEvent: (event: ScanEvent) => {
-          // If real backend events arrive, log to event feed
+          // Log to event feed
           const ts = new Date().toLocaleTimeString();
           setEventsList((prev) => [
             ...prev,
@@ -439,16 +456,21 @@ export default function LiveScanPage() {
               label: (event.payload as any)?.label,
             },
           ]);
+          // Re-fetch findings whenever a verdict is created so the radar updates
+          if (event.kind === "verdict_created" || event.kind === "scan_completed") {
+            void loadFindings();
+          }
         },
       });
     } catch {
-      // Offline fallback
+      // Offline fallback — radar shows whatever was last loaded
     }
 
     return () => {
       client?.close();
     };
-  }, [scanId]);
+  }, [scanId, loadFindings]);
+
 
   // Load target profile
   useEffect(() => {
@@ -668,6 +690,7 @@ export default function LiveScanPage() {
           <ScanRadarPulse
             phase={currentStep.phase}
             isScanning={isPlaying && currentStep.phase !== "Report"}
+            blips={radarBlips}
           />
         </section>
 

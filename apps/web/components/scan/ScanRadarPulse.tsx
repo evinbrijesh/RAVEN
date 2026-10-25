@@ -2,59 +2,123 @@
 
 import { useState, useEffect } from "react";
 import { Radio, Terminal, ShieldAlert, ShieldCheck } from "lucide-react";
+import type { Finding, AttackCategory, Severity } from "@/lib/types";
 
+// ---------------------------------------------------------------------------
+// Public blip type — callers construct these from real Finding data
+// ---------------------------------------------------------------------------
+export interface RadarBlip {
+  id: string;         // attack_id
+  angle: number;      // degrees (0 = 12 o'clock)
+  dist: number;       // 0–1 fraction of radar radius
+  status: "blocked" | "breached";
+  label: string;      // human-readable category
+  severity: Severity;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: map a Finding[] to RadarBlip[]
+// Exported so the parent (scan page) can call it directly.
+// ---------------------------------------------------------------------------
+
+const CATEGORY_BASE_ANGLES: Record<AttackCategory, number> = {
+  direct_injection: 20,
+  canary_leakage:   110,
+  sensitive_data:   200,
+  tool_misuse:      290,
+};
+
+const CATEGORY_LABELS: Record<AttackCategory, string> = {
+  direct_injection: "Direct Injection",
+  canary_leakage:   "Canary Leakage",
+  sensitive_data:   "Sensitive Data",
+  tool_misuse:      "Tool Misuse",
+};
+
+export function findingsToBlips(findings: Finding[]): RadarBlip[] {
+  // Group by category so we can fan blips out within each quadrant
+  const byCategory: Partial<Record<AttackCategory, Finding[]>> = {};
+  for (const f of findings) {
+    if (!byCategory[f.category]) byCategory[f.category] = [];
+    byCategory[f.category]!.push(f);
+  }
+
+  const blips: RadarBlip[] = [];
+  for (const [cat, items] of Object.entries(byCategory) as [AttackCategory, Finding[]][]) {
+    const base = CATEGORY_BASE_ANGLES[cat] ?? 0;
+    const step = items.length > 1 ? 60 / (items.length - 1) : 0; // spread 60° per bucket
+    items.forEach((f, i) => {
+      const angle = (base + i * step - 30 + 360) % 360; // centre the fan
+      // Higher confidence → blip closer to the edge (more "detected")
+      const dist = 0.45 + Math.min(f.confidence, 1) * 0.45;
+      const breached =
+        f.label === "confirmed_failure" || f.label === "likely_failure";
+      const sev: Severity =
+        f.severity === "critical" || f.severity === "high" || f.severity === "medium"
+          ? f.severity
+          : "medium";
+      blips.push({
+        id: f.attack_id,
+        angle,
+        dist,
+        status: breached ? "breached" : "blocked",
+        label: CATEGORY_LABELS[cat] ?? cat,
+        severity: sev,
+      });
+    });
+  }
+  return blips;
+}
+
+// ---------------------------------------------------------------------------
+// Component props
+// ---------------------------------------------------------------------------
 export interface ScanRadarPulseProps {
   phase?: string;
   isScanning?: boolean;
+  /** Real blips derived from scan findings. Pass [] during active scan for empty radar. */
+  blips?: RadarBlip[];
   className?: string;
 }
 
-interface Blip {
-  id: string;
-  angle: number;
-  dist: number;
-  status: "blocked" | "breached";
-  label: string;
-  severity: "critical" | "high" | "medium";
-}
-
-const RADAR_BLIPS: Blip[] = [
-  { id: "A-01", angle: 35, dist: 0.72, status: "blocked", label: "Direct Injection", severity: "high" },
-  { id: "A-04", angle: 115, dist: 0.85, status: "breached", label: "Canary Leakage", severity: "critical" },
-  { id: "A-07", angle: 195, dist: 0.60, status: "breached", label: "PII Harvest", severity: "critical" },
-  { id: "A-10", angle: 265, dist: 0.45, status: "blocked", label: "Tool Escalation", severity: "high" },
-  { id: "A-06", angle: 320, dist: 0.78, status: "blocked", label: "Translation Bypass", severity: "medium" },
+// ---------------------------------------------------------------------------
+// Telemetry log seeds (cosmetic, not data-bearing)
+// ---------------------------------------------------------------------------
+const SEED_LOGS = [
+  "T+002ms [RECON_PROBE] Handshake initiated with target /chat",
+  "T+045ms [TOKEN_AUDIT] Verifying canary signature integrity",
+  "T+112ms [ATTACK_SUITE] Vector dispatched (OWASP-LLM01)",
+  "T+184ms [POLICY_GATEWAY] Tool authorization check intercepted",
+  "T+242ms [DUAL_JUDGE] Deterministic regex hit: corroborated",
 ];
 
+const LIVE_EVENTS = [
+  (t: number) => `T+${t}ms [MUTATOR] Synthesizing roleplay evasion variant`,
+  (t: number) => `T+${t + 30}ms [GATEWAY] Denied unverified refund authorization`,
+  (t: number) => `T+${t + 65}ms [CANARY_PROBE] Zero token leakage confirmed`,
+  (t: number) => `T+${t + 90}ms [UTILITY_RUNNER] Benign customer test verified (PASS)`,
+  (t: number) => `T+${t + 120}ms [RADAR_SWEEP] Vector telemetry synced with state graph`,
+];
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 export default function ScanRadarPulse({
   phase = "Attack",
   isScanning = true,
+  blips = [],
   className = "",
 }: ScanRadarPulseProps) {
-  const [activeBlip, setActiveBlip] = useState<Blip | null>(null);
-  const [telemetryLogs, setTelemetryLogs] = useState<string[]>([
-    "T+002ms [RECON_PROBE] Handshake initiated with target /chat",
-    "T+045ms [TOKEN_AUDIT] Verifying canary signature integrity",
-    "T+112ms [ATTACK_SUITE] Vector A-04 dispatched (OWASP-LLM01)",
-    "T+184ms [POLICY_GATEWAY] Tool authorization check: issue_refund intercepted",
-    "T+242ms [DUAL_JUDGE] Deterministic regex hit: canary token corroborated",
-  ]);
+  const [activeBlip, setActiveBlip] = useState<RadarBlip | null>(null);
+  const [telemetryLogs, setTelemetryLogs] = useState<string[]>(SEED_LOGS);
 
   useEffect(() => {
     if (!isScanning) return;
     const interval = setInterval(() => {
       const now = Math.floor(Math.random() * 400 + 100);
-      const events = [
-        `T+${now}ms [MUTATOR] Synthesizing roleplay evasion variant`,
-        `T+${now + 30}ms [GATEWAY] Denied unverified refund authorization`,
-        `T+${now + 65}ms [CANARY_PROBE] Zero token leakage confirmed`,
-        `T+${now + 90}ms [UTILITY_RUNNER] Benign customer test verified (PASS)`,
-        `T+${now + 120}ms [RADAR_SWEEP] Vector telemetry synced with state graph`,
-      ];
-      const randomEvent = events[Math.floor(Math.random() * events.length)];
-      setTelemetryLogs((prev) => [...prev.slice(-4), randomEvent]);
+      const fn = LIVE_EVENTS[Math.floor(Math.random() * LIVE_EVENTS.length)];
+      setTelemetryLogs((prev) => [...prev.slice(-4), fn(now)]);
     }, 3200);
-
     return () => clearInterval(interval);
   }, [isScanning]);
 
@@ -62,20 +126,23 @@ export default function ScanRadarPulse({
   const center = size / 2;
   const maxRadius = center - 18;
 
-  // Arc calculation for 45-degree trailing sweep sector
-  // When leading blade is at 12 o'clock (0, -maxRadius), trailing edge is at -45 deg (-sin(45), -cos(45))
+  // Arc for 45° trailing sweep wedge
   const sweepAngleDeg = 45;
   const sweepAngleRad = (sweepAngleDeg * Math.PI) / 180;
   const trailX = center - maxRadius * Math.sin(sweepAngleRad);
   const trailY = center - maxRadius * Math.cos(sweepAngleRad);
   const sweepPath = `M ${center} ${center} L ${center} ${center - maxRadius} A ${maxRadius} ${maxRadius} 0 0 0 ${trailX} ${trailY} Z`;
 
+  const hasBlips = blips.length > 0;
+
   return (
-    <div className={`relative overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 shadow-2xl backdrop-blur-md ${className}`}>
-      {/* Background ambient HUD grid */}
+    <div
+      className={`relative overflow-hidden rounded-xl border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 shadow-2xl backdrop-blur-md ${className}`}
+    >
+      {/* Ambient HUD grid */}
       <div className="absolute inset-0 bg-[radial-gradient(#2DD4BF_1px,transparent_1px)] [background-size:16px_16px] opacity-[0.03] pointer-events-none" />
 
-      {/* Cyber Reticle Corner Accents */}
+      {/* Corner reticles */}
       <div className="absolute top-2 left-2 w-2.5 h-2.5 border-t border-l border-teal-500/40 pointer-events-none" />
       <div className="absolute top-2 right-2 w-2.5 h-2.5 border-t border-r border-teal-500/40 pointer-events-none" />
       <div className="absolute bottom-2 left-2 w-2.5 h-2.5 border-b border-l border-teal-500/40 pointer-events-none" />
@@ -86,7 +153,7 @@ export default function ScanRadarPulse({
         <div className="flex items-center gap-2">
           <Radio className={`h-4 w-4 ${isScanning ? "text-teal-400 animate-pulse" : "text-zinc-500"}`} />
           <h4 className="text-xs font-mono font-semibold uppercase tracking-wider text-[var(--text-primary)]">
-            Active Vector Radar & Telemetry
+            Active Vector Radar &amp; Telemetry
           </h4>
         </div>
         <div className="flex items-center gap-2 font-mono text-[10px]">
@@ -100,7 +167,7 @@ export default function ScanRadarPulse({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6 items-center">
-        {/* Animated Cyber Radar Display */}
+        {/* SVG Radar */}
         <div className="relative flex flex-col items-center justify-center">
           <svg
             width={size}
@@ -109,105 +176,63 @@ export default function ScanRadarPulse({
             className="overflow-visible select-none"
           >
             <defs>
-              {/* Radar sweep trailing gradient */}
               <linearGradient id="radar-sweep-trail" x1="100%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stopColor="#2DD4BF" stopOpacity="0.45" />
                 <stop offset="60%" stopColor="#2DD4BF" stopOpacity="0.12" />
                 <stop offset="100%" stopColor="#2DD4BF" stopOpacity="0" />
               </linearGradient>
-
-              {/* Radial glow filter */}
               <filter id="radar-glow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur stdDeviation="2" result="blur" />
                 <feComposite in="SourceGraphic" in2="blur" operator="over" />
               </filter>
             </defs>
 
-            {/* Radar Circular Background */}
-            <circle
-              cx={center}
-              cy={center}
-              r={maxRadius}
-              fill="rgba(10, 20, 24, 0.4)"
-              stroke="rgba(45, 212, 191, 0.25)"
-              strokeWidth="1.5"
-            />
+            {/* Radar background */}
+            <circle cx={center} cy={center} r={maxRadius} fill="rgba(10,20,24,0.4)" stroke="rgba(45,212,191,0.25)" strokeWidth="1.5" />
 
-            {/* Concentric distance rings */}
+            {/* Concentric rings */}
             {[0.25, 0.5, 0.75].map((rPct) => (
-              <circle
-                key={`ring-${rPct}`}
-                cx={center}
-                cy={center}
-                r={maxRadius * rPct}
-                fill="none"
-                stroke="rgba(45, 212, 191, 0.14)"
-                strokeWidth="1"
-                strokeDasharray="3 3"
-              />
+              <circle key={`ring-${rPct}`} cx={center} cy={center} r={maxRadius * rPct} fill="none" stroke="rgba(45,212,191,0.14)" strokeWidth="1" strokeDasharray="3 3" />
             ))}
 
-            {/* Range distance tags */}
+            {/* Range tags */}
             <text x={center + 3} y={center - maxRadius * 0.5 + 9} className="text-[7px] font-mono fill-teal-500/40">50%</text>
             <text x={center + 3} y={center - maxRadius * 0.75 + 9} className="text-[7px] font-mono fill-teal-500/40">75%</text>
 
-            {/* Crosshair lines */}
-            <line
-              x1={center - maxRadius}
-              y1={center}
-              x2={center + maxRadius}
-              y2={center}
-              stroke="rgba(45, 212, 191, 0.22)"
-              strokeWidth="1"
-            />
-            <line
-              x1={center}
-              y1={center - maxRadius}
-              x2={center}
-              y2={center + maxRadius}
-              stroke="rgba(45, 212, 191, 0.22)"
-              strokeWidth="1"
-            />
+            {/* Crosshairs */}
+            <line x1={center - maxRadius} y1={center} x2={center + maxRadius} y2={center} stroke="rgba(45,212,191,0.22)" strokeWidth="1" />
+            <line x1={center} y1={center - maxRadius} x2={center} y2={center + maxRadius} stroke="rgba(45,212,191,0.22)" strokeWidth="1" />
 
-            {/* Azimuth tick marks */}
+            {/* Azimuth labels */}
             <text x={center} y={center - maxRadius - 5} textAnchor="middle" className="text-[8px] font-mono font-bold fill-teal-400/80">000°</text>
             <text x={center + maxRadius + 7} y={center + 3} textAnchor="start" className="text-[8px] font-mono fill-zinc-500">090°</text>
             <text x={center} y={center + maxRadius + 12} textAnchor="middle" className="text-[8px] font-mono fill-zinc-500">180°</text>
             <text x={center - maxRadius - 7} y={center + 3} textAnchor="end" className="text-[8px] font-mono fill-zinc-500">270°</text>
 
-            {/* 360-Degree Hardware Rotating Sweep (Guaranteed Center Pivot via animateTransform) */}
-            {isScanning ? (
+            {/* Rotating sweep (only while scanning) */}
+            {isScanning && (
               <g>
-                <animateTransform
-                  attributeName="transform"
-                  type="rotate"
-                  from={`0 ${center} ${center}`}
-                  to={`360 ${center} ${center}`}
-                  dur="4s"
-                  repeatCount="indefinite"
-                />
-                {/* Trailing wedge sector */}
+                <animateTransform attributeName="transform" type="rotate" from={`0 ${center} ${center}`} to={`360 ${center} ${center}`} dur="4s" repeatCount="indefinite" />
                 <path d={sweepPath} fill="url(#radar-sweep-trail)" />
-                {/* Leading sharp scanning blade */}
-                <line
-                  x1={center}
-                  y1={center}
-                  x2={center}
-                  y2={center - maxRadius}
-                  stroke="#2DD4BF"
-                  strokeWidth="2"
-                  filter="url(#radar-glow)"
-                />
+                <line x1={center} y1={center} x2={center} y2={center - maxRadius} stroke="#2DD4BF" strokeWidth="2" filter="url(#radar-glow)" />
               </g>
-            ) : null}
+            )}
 
-            {/* Center glowing radar hub */}
-            <circle cx={center} cy={center} r="5" fill="rgba(45, 212, 191, 0.2)" />
+            {/* Center hub */}
+            <circle cx={center} cy={center} r="5" fill="rgba(45,212,191,0.2)" />
             <circle cx={center} cy={center} r="2.5" fill="#2DD4BF" />
 
-            {/* Target Blips */}
-            {RADAR_BLIPS.map((blip) => {
-              const rad = (blip.angle * Math.PI) / 180;
+            {/* Empty-state label when no findings yet */}
+            {!hasBlips && (
+              <text x={center} y={center + maxRadius * 0.5} textAnchor="middle" className="text-[9px] font-mono fill-teal-500/30">
+                {isScanning ? "awaiting findings…" : "no findings"}
+              </text>
+            )}
+
+            {/* Real blips from findings */}
+            {blips.map((blip) => {
+              // SVG angle: 0° = top (12 o'clock), clockwise. Rotate by -90° to convert.
+              const rad = ((blip.angle - 90) * Math.PI) / 180;
               const r = maxRadius * blip.dist;
               const bx = center + r * Math.cos(rad);
               const by = center + r * Math.sin(rad);
@@ -222,20 +247,12 @@ export default function ScanRadarPulse({
                   onMouseEnter={() => setActiveBlip(blip)}
                   onMouseLeave={() => setActiveBlip(null)}
                 >
-                  {/* Hover highlight ring — driven by React state, no CSS transform */}
+                  {/* Hover highlight ring — pure SVG, no CSS transform */}
                   {isActive && (
-                    <circle
-                      cx={bx}
-                      cy={by}
-                      r="13"
-                      fill="none"
-                      stroke={isBreach ? "#F43F5E" : "#2DD4BF"}
-                      strokeWidth="1"
-                      opacity="0.5"
-                    />
+                    <circle cx={bx} cy={by} r="13" fill="none" stroke={isBreach ? "#F43F5E" : "#2DD4BF"} strokeWidth="1" opacity="0.5" />
                   )}
 
-                  {/* Outer pulse echo for breached vectors */}
+                  {/* Pulse ring for breached blips */}
                   {isBreach ? (
                     <circle
                       cx={bx}
@@ -248,18 +265,10 @@ export default function ScanRadarPulse({
                       style={{ transformBox: "fill-box", transformOrigin: "center" }}
                     />
                   ) : (
-                    <circle
-                      cx={bx}
-                      cy={by}
-                      r="7"
-                      fill="none"
-                      stroke="#2DD4BF"
-                      strokeWidth="0.8"
-                      className="opacity-40"
-                    />
+                    <circle cx={bx} cy={by} r="7" fill="none" stroke="#2DD4BF" strokeWidth="0.8" className="opacity-40" />
                   )}
 
-                  {/* Solid blip core */}
+                  {/* Solid core */}
                   <circle
                     cx={bx}
                     cy={by}
@@ -269,14 +278,12 @@ export default function ScanRadarPulse({
                     filter="url(#radar-glow)"
                   />
 
-                  {/* Clean, Non-overlapping text anchor */}
+                  {/* ID label */}
                   <text
                     x={isRight ? bx + 8 : bx - 8}
                     y={by + 3}
                     textAnchor={isRight ? "start" : "end"}
-                    className={`text-[9px] font-mono font-bold tracking-tight pointer-events-none drop-shadow ${
-                      isBreach ? "fill-rose-400" : "fill-teal-300"
-                    }`}
+                    className={`text-[9px] font-mono font-bold tracking-tight pointer-events-none drop-shadow ${isBreach ? "fill-rose-400" : "fill-teal-300"}`}
                   >
                     {blip.id}
                   </text>
@@ -285,7 +292,7 @@ export default function ScanRadarPulse({
             })}
           </svg>
 
-          {/* Active Blip Mini HUD Badge */}
+          {/* Hover badge */}
           {activeBlip ? (
             <div className="mt-2.5 flex items-center gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-2.5 py-1 text-[10px] font-mono animate-fade-in shadow-md">
               {activeBlip.status === "breached" ? (
@@ -303,16 +310,23 @@ export default function ScanRadarPulse({
               }`}>
                 {activeBlip.status}
               </span>
+              <span className="text-zinc-600 text-[9px]">{activeBlip.severity}</span>
             </div>
           ) : (
             <div className="mt-2 text-[10px] font-mono text-zinc-500 flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-teal-400/50" />
-              <span>Hover vector blips to inspect</span>
+              <span>
+                {hasBlips
+                  ? `${blips.length} vector${blips.length !== 1 ? "s" : ""} plotted — hover to inspect`
+                  : isScanning
+                  ? "Awaiting first findings from scan…"
+                  : "No findings to display"}
+              </span>
             </div>
           )}
         </div>
 
-        {/* Real-time Telemetry HUD Console */}
+        {/* Telemetry HUD Console */}
         <div className="space-y-3 font-mono text-xs">
           <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-base)] p-3.5 space-y-2 shadow-inner">
             <div className="flex items-center justify-between text-[11px] text-zinc-500 border-b border-[var(--border-hairline)] pb-1.5">
@@ -321,7 +335,6 @@ export default function ScanRadarPulse({
               </span>
               <span className="text-[10px] text-zinc-400">1000/s BUFFER</span>
             </div>
-
             <div className="space-y-1.5 text-[11px] leading-relaxed">
               {telemetryLogs.map((log, idx) => (
                 <div
@@ -341,8 +354,22 @@ export default function ScanRadarPulse({
             </div>
           </div>
 
+          {/* Blip legend */}
+          {hasBlips && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px] text-zinc-500">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-rose-500 inline-block" />
+                breached ({blips.filter((b) => b.status === "breached").length})
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-teal-400 inline-block" />
+                blocked ({blips.filter((b) => b.status === "blocked").length})
+              </span>
+            </div>
+          )}
+
           <div className="flex items-center justify-between px-1 text-[10px] text-zinc-500">
-            <span>CHANNELS: 12 ATTACK / 10 BENIGN</span>
+            <span>CHANNELS: {hasBlips ? `${blips.length} ATTACK` : "—"}</span>
             <span className="text-teal-400 font-semibold tracking-wide">ZERO-LEAK ASSURANCE</span>
           </div>
         </div>
