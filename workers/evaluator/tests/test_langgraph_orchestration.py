@@ -66,7 +66,6 @@ from evaluator.judges.resolver import VerdictResolver
 from evaluator.judges.semantic import SemanticJudge
 from evaluator.orchestration.budgets import BudgetTracker
 from evaluator.orchestration.phases import ScanEngine
-from evaluator.orchestration.state import create_initial_state
 from evaluator.targets.base import TargetAdapter
 
 
