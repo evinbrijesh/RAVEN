@@ -203,20 +203,39 @@ export default function ReportPage() {
 
   const load = useCallback(async () => {
     if (!scanId) return;
-    setError(null);
     try {
+      // Check scan status first
+      try {
+        const scan = await getScan(scanId);
+        if (scan.status === "retesting") {
+          setRetesting(true);
+          setError(null);
+          return;
+        }
+      } catch {}
+
       const result = await getReport(scanId, "json");
       if (typeof result === "string") {
         setError("Report endpoint returned an unexpected format.");
         return;
       }
       setReport(result as Report);
+      setError(null);
     } catch (cause) {
       if (scanId === "scan_123") {
         // scan_123 is the showcase demo scan: seamlessly load demo report
         setReport(DEMO_REPORT);
         return;
       }
+      // If report failed, check if the scan is actively running/retesting
+      try {
+        const scan = await getScan(scanId);
+        if (scan.status === "retesting") {
+          setRetesting(true);
+          setError(null);
+          return;
+        }
+      } catch {}
       setError(
         cause instanceof ApiRequestError ? cause.message : "Failed to load report.",
       );
@@ -267,6 +286,33 @@ export default function ReportPage() {
       clearInterval(interval);
     };
   }, [retesting, report?.scan?.status, scanId, load]);
+
+  if (retesting && !report) {
+    return (
+      <div className="flex flex-col">
+        <TopBar
+          breadcrumbs={[
+            { label: "Scans", href: "/scans" },
+            { label: scanId, href: `/scans/${scanId}` },
+            { label: "Report" },
+          ]}
+          scanStatus="retesting"
+        />
+        <main className="flex-1 px-6 py-8 max-w-3xl mx-auto w-full space-y-6">
+          <div className="rounded-[var(--radius-card)] border border-[var(--accent)]/40 bg-[var(--accent-glow)] p-6 space-y-3">
+            <div className="flex items-center gap-2 font-mono text-sm text-[var(--accent)] font-semibold uppercase tracking-wider">
+              <span className="h-2.5 w-2.5 rounded-full bg-[var(--accent)] animate-ping" />
+              Hardening Approved · Executing Retest & Benchmarking…
+            </div>
+            <p className="text-xs text-[var(--text-secondary)]">
+              Running verification attack suite and benign utility regression suite against the hardened target. The final audit report will display automatically once completed.
+            </p>
+          </div>
+          <LoadingBlock label="Executing security retest suite…" />
+        </main>
+      </div>
+    );
+  }
 
   if (error) {
     const isNetworkError = error.includes("Cannot reach RAVEN API") || error.includes("NETWORK_ERROR");

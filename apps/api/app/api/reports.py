@@ -74,4 +74,13 @@ def get_report(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=exc.to_payload()
         ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "REPORT_GENERATION_FAILED",
+                "message": f"Report generation failed: {exc}",
+                "retryable": True,
+            },
+        ) from exc
     return _report_response(result, report_format, download)

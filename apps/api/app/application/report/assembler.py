@@ -225,8 +225,8 @@ def _decide_verdict(
         return ReportVerdict.INCONCLUSIVE
     if counts.needs_review > 0 and not semantic_available:
         return ReportVerdict.INCONCLUSIVE
-    if after_run is None:
-        # 3a. Findings without a retest are still confirmed vulnerable.
+    if after_run is None or scan_status == ScanStatus.RETESTING:
+        # 3a. Findings without a completed retest are still confirmed vulnerable.
         if counts.confirmed_failure + counts.likely_failure > 0:
             return ReportVerdict.CONFIRMED_VULNERABLE
         return ReportVerdict.INCONCLUSIVE
