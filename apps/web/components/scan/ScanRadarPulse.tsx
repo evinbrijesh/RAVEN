@@ -213,14 +213,28 @@ export default function ScanRadarPulse({
               const by = center + r * Math.sin(rad);
               const isBreach = blip.status === "breached";
               const isRight = bx >= center;
+              const isActive = activeBlip?.id === blip.id;
 
               return (
                 <g
                   key={blip.id}
-                  className="cursor-pointer transition-transform duration-150 hover:scale-125"
+                  className="cursor-pointer"
                   onMouseEnter={() => setActiveBlip(blip)}
                   onMouseLeave={() => setActiveBlip(null)}
                 >
+                  {/* Hover highlight ring — driven by React state, no CSS transform */}
+                  {isActive && (
+                    <circle
+                      cx={bx}
+                      cy={by}
+                      r="13"
+                      fill="none"
+                      stroke={isBreach ? "#F43F5E" : "#2DD4BF"}
+                      strokeWidth="1"
+                      opacity="0.5"
+                    />
+                  )}
+
                   {/* Outer pulse echo for breached vectors */}
                   {isBreach ? (
                     <circle
@@ -231,6 +245,7 @@ export default function ScanRadarPulse({
                       stroke="#F43F5E"
                       strokeWidth="1.2"
                       className="animate-ping opacity-60"
+                      style={{ transformBox: "fill-box", transformOrigin: "center" }}
                     />
                   ) : (
                     <circle
