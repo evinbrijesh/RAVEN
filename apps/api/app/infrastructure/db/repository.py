@@ -8,6 +8,7 @@ the same persistence contract. All timestamps are ISO 8601 UTC strings.
 from __future__ import annotations
 
 import json
+import sqlite3
 import uuid
 from datetime import datetime
 from typing import Any
@@ -651,21 +652,28 @@ class ReportRepository:
         if existing is not None:
             return str(existing["artifact_id"])
         artifact_id = _id("rpt")
-        self._db.execute(
-            "INSERT INTO report_artifacts (artifact_id, scan_id, format, content,"
-            " schema_version, generator_version, content_sha256, created_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                artifact_id,
-                scan_id,
-                fmt,
-                content,
-                schema_version,
-                generator_version,
-                content_sha256,
-                _now(),
-            ),
-        )
+        try:
+            self._db.execute(
+                "INSERT OR IGNORE INTO report_artifacts (artifact_id, scan_id, format, content,"
+                " schema_version, generator_version, content_sha256, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    artifact_id,
+                    scan_id,
+                    fmt,
+                    content,
+                    schema_version,
+                    generator_version,
+                    content_sha256,
+                    _now(),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            pass
+
+        existing = self.get_artifact_by_hash(scan_id, fmt, content_sha256)
+        if existing is not None:
+            return str(existing["artifact_id"])
         return artifact_id
 
     def get_artifact_by_hash(

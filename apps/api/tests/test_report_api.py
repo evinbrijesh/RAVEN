@@ -351,3 +351,19 @@ def test_finding_transcript_unknown_finding_404(client: TestClient) -> None:
     scan_id = _seed_completed_scan(client)
     response = client.get(f"/api/scans/{scan_id}/findings/find_missing/transcript")
     assert response.status_code == 404
+
+
+def test_report_artifact_save_concurrent_idempotent(client: TestClient) -> None:
+    """save_artifact must never raise UNIQUE constraint failed on duplicate inserts."""
+    repos = client.app.state.repos
+    scan_id = "scan_test_unique_race"
+    fmt = "json"
+    content = '{"test": 1}'
+    hash_val = "abc123sha256"
+
+    id1 = repos.reports.save_artifact(scan_id, fmt, content, content_sha256=hash_val)
+    # Concurrent / duplicate insert with the same unique key
+    id2 = repos.reports.save_artifact(scan_id, fmt, content, content_sha256=hash_val)
+
+    assert id1 == id2
+
