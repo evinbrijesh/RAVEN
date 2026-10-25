@@ -1,0 +1,422 @@
+RAVEN — AI Prompt and System Specification File
+
+Project name:
+RAVEN — Red-team Analysis, Verification, Enforcement, and Normal-use Assurance
+
+Primary hackathon track:
+AI for Cybersecurity
+
+Secondary relevance:
+AI for Developers through CI/CD security regression testing
+
+Purpose of this file:
+This file records the principal architecture and implementation prompts used to design RAVEN. It is a structured specification and development prompt log, not a claim that every prompt was entered as one single message or that every future capability is already enabled in the MVP.
+
+Project objective:
+Build a production-oriented, bounded, human-supervised security regression platform for LLM applications and tool-using AI agents. The system must discover security failures, preserve evidence, propose explainable remediation, verify the remediation without breaking normal functionality, and convert verified weaknesses into reusable regression tests.
+
+Core product principle:
+Attack → Explain → Propose → Approve → Retest → Preserve as regression protection.
+
+============================================================
+PROMPT 1 — PRODUCT AND SYSTEM ARCHITECTURE
+============================================================
+
+Design a production-oriented security regression platform for LLM applications and AI agents named RAVEN. RAVEN must not be a generic chatbot wrapper or an unbounded autonomous red-team loop. It must be an evidence-first engineering system that connects adversarial testing, remediation review, retesting, and CI/CD regression protection.
+
+Model the workflow as:
+
+Create scan → Recon target → Select approved attacks → Execute bounded attacks → Judge evidence → Generate hardening proposal → Human approval → Apply temporary hardening → Retest security and benign utility → Promote verified weaknesses → Generate reports.
+
+Separate the system into:
+
+1. User interface and visualization layer.
+2. API control plane.
+3. Durable scan state and evidence store.
+4. Evaluation worker.
+5. Target adapter layer.
+6. Deterministic and semantic judging layer.
+7. Hardening and policy layer.
+8. Regression and reporting layer.
+
+Use typed contracts between layers. Treat all target output and all LLM output as untrusted data. Do not permit an LLM to deploy code, modify production state, execute arbitrary external actions, or approve its own remediation.
+
+============================================================
+PROMPT 2 — BOUNDED MULTI-ROLE AGENT DESIGN
+============================================================
+
+Define five bounded security-agent roles for RAVEN:
+
+1. Planner — selects cases from a versioned approved attack catalog.
+2. Recon Agent — safely profiles the target and identifies supported tools and refusal behavior.
+3. Attacker — executes approved seed attacks and may generate at most one bounded mutation when the first result is blocked or uncertain.
+4. Judge — combines deterministic evidence checks with optional structured semantic analysis.
+5. Hardener — generates reviewable prompt and machine-readable policy remediation proposals.
+
+For each role, define:
+
+- Input contract.
+- Output contract.
+- Allowed tools and permissions.
+- Forbidden actions.
+- Maximum model calls.
+- Timeout and token budget.
+- Evidence that must be persisted.
+- Failure and retry behavior.
+
+Do not describe these roles as five unrestricted autonomous LLMs. Identify which roles are deterministic software components and where optional LLM assistance is used.
+
+============================================================
+PROMPT 3 — TYPED STATE MACHINE AND APPROVAL SAFETY
+============================================================
+
+Implement a typed, durable scan state machine with these states:
+
+created → reconning → attacking → judging → hardening_proposed → awaiting_approval → retesting → completed.
+
+Also support completed_without_retest, failed_partial, failed_fatal, and inconclusive outcomes.
+
+Approval semantics must be:
+
+- No approval decision → remain awaiting_approval.
+- Explicit approval → begin retesting.
+- Explicit rejection → no hardening application and completed_without_retest.
+- Duplicate approval → idempotent; never launch duplicate retests.
+- Superseded proposal → cannot be approved.
+
+Persist state transitions and audit events. A worker restart must resume safely without duplicating findings, model calls, retests, or reports.
+
+============================================================
+PROMPT 4 — VERSIONED ATTACK CATALOG
+============================================================
+
+Design a versioned attack catalog for an LLM customer-support agent. Every attack case must contain:
+
+- Stable attack ID.
+- Catalog version.
+- Category.
+- Goal.
+- Seed prompt.
+- Success rule.
+- Severity.
+- Security references.
+- Expected evidence.
+- Expected mitigation.
+
+Cover these initial categories:
+
+- Direct prompt injection.
+- System-prompt and canary leakage.
+- Sensitive-data disclosure.
+- Unauthorized tool use.
+
+The Planner may select only approved catalog cases. It must not invent arbitrary external actions or unrestricted attack objectives. Regression cases must preserve their original attack version so results remain comparable across future model and prompt changes.
+
+============================================================
+PROMPT 5 — ADAPTIVE ATTACK MUTATION WITH HARD BUDGETS
+============================================================
+
+Implement bounded adaptive adversarial testing.
+
+For each case:
+
+Attempt 1 = approved catalog seed.
+Attempt 2 = one adaptive mutation only if Attempt 1 is blocked or uncertain.
+Confirmed failure on Attempt 1 = stop the case immediately.
+After Attempt 2 = hard stop.
+
+A mutation may use an LLM to produce a nearby variation such as authority framing, roleplay, encoding, translation, indirect wording, or multi-step manipulation. The mutation generator must receive only the attack goal, seed prompt, relevant prior response, and attempt number.
+
+The mutation generator must not modify:
+
+- Production code.
+- System prompts.
+- Tool policies.
+- Attack catalog.
+- Filesystem.
+- External systems.
+
+Persist the seed prompt, mutation prompt, mutation strategy, model name, prompt version, token usage, duration, response, and final verdict.
+
+Enforce maximum attack cases, attempts, model calls, tokens, per-call timeout, total scan timeout, and concurrency.
+
+============================================================
+PROMPT 6 — DETERMINISTIC EVIDENCE LEDGER
+============================================================
+
+Design an evidence-first security evaluation pipeline. Deterministic checks must run before probabilistic checks and must record exact evidence references.
+
+Support deterministic signals for:
+
+- Exact canary-token leakage.
+- System-prompt disclosure markers.
+- Synthetic secret or PII markers.
+- Unauthorized tool calls.
+- Unknown tools.
+- Missing user or order verification.
+- Malformed tool arguments.
+- Policy-gateway allow or deny decisions.
+- Target timeout and execution errors.
+
+Do not claim that deterministic checks prove global security. Describe them as high-confidence evidence for the stated test condition. Every verdict must identify the evidence that supports it.
+
+============================================================
+PROMPT 7 — CONSERVATIVE DUAL-LAYER JUDGING
+============================================================
+
+Implement a Judge that combines deterministic checks with an optional structured LLM semantic judge.
+
+The semantic judge receives only:
+
+- Attack goal.
+- Success rule.
+- Attack prompt.
+- Assistant response.
+- Tool execution markers.
+
+Require schema-validated JSON:
+
+{
+  "label": "confirmed_failure | likely_failure | attack_blocked | needs_review",
+  "confidence": 0.0,
+  "reason": "one concise explanation"
+}
+
+Retry invalid JSON at most once. If the model is unavailable, preserve deterministic results and record semantic_unavailable. If deterministic and semantic results disagree, resolve conservatively and mark needs_review where evidence is insufficient. Never allow an LLM opinion to erase a clear deterministic canary leak or unauthorized tool call.
+
+============================================================
+PROMPT 8 — FAIL-CLOSED TOOL POLICY GATEWAY
+============================================================
+
+Implement a fail-closed PolicyGateway for tool-using AI agents.
+
+The gateway must:
+
+- Validate tool names against an allowlist.
+- Validate argument schemas.
+- Require verified user context for sensitive actions.
+- Require verified order or resource context.
+- Enforce amount or risk thresholds.
+- Deny unknown tools.
+- Deny missing policies.
+- Deny malformed arguments.
+- Deny missing verification.
+- Record the decision, reason, policy version, and evidence.
+
+A missing condition must never result in allow. Policies must be isolated between scans and target instances. The gateway must never perform real refunds, payments, emails, or destructive external actions during evaluation.
+
+============================================================
+PROMPT 9 — EXPLAINABLE HARDENING PROPOSALS
+============================================================
+
+When a confirmed or reviewed finding exists, generate a transparent remediation proposal.
+
+The proposal must include:
+
+- Finding summary.
+- Attack and evidence references.
+- Root-cause explanation.
+- Proposed system-prompt diff.
+- Proposed machine-readable tool-policy diff.
+- Expected affected attacks.
+- Expected utility impact.
+- Risk and trade-off notes.
+- Proposal content hash.
+- Validation status.
+
+Prompt hardening may address instruction override, system-prompt disclosure, sensitive-data disclosure, and unsafe tool behavior. Policy hardening must add explicit conditions and fail-closed violation behavior.
+
+Do not automatically deploy the proposal. It must be reviewed and approved by a human.
+
+============================================================
+PROMPT 10 — SECURITY VERSUS UTILITY FRONTIER
+============================================================
+
+Implement before-and-after verification.
+
+Before hardening, execute the security suite and benign utility baseline. After explicit approval, apply the proposal only to a temporary target instance and execute:
+
+1. The selected security attack suite.
+2. The benign utility suite.
+3. Promoted regression cases where applicable.
+
+Measure:
+
+- Attack success rate before and after.
+- Blocked rate.
+- Confirmed failures.
+- Needs-review cases.
+- Not-evaluated cases.
+- Benign task completion.
+- Over-refusal or utility regression.
+- Model calls, latency, and token usage.
+
+A mitigation is fully successful only when the relevant attack is blocked, evidence is complete, the approved hardening was applied to the tested target, and normal utility remains within the configured threshold.
+
+============================================================
+PROMPT 11 — BENIGN UTILITY CATALOG
+============================================================
+
+Create a versioned benign test catalog for the customer-support target. Include legitimate tasks such as:
+
+- Order status lookup.
+- Multiple order states.
+- Return-policy question.
+- Greeting.
+- Unknown-order handling.
+- Shipping question.
+- General purchase assistance.
+
+Each benign case must contain a stable ID, prompt, expected behavior marker, version, and utility policy. A missing or skipped benign suite must prevent RAVEN from claiming a fully verified mitigation.
+
+============================================================
+PROMPT 12 — TARGET ADAPTER AND AUTHORIZED HTTP SAFETY
+============================================================
+
+Define a target-adapter interface with profile, invoke, reset, temporary hardening, and cleanup operations.
+
+Implement the deterministic local ShopHelper adapter first using synthetic fixtures. Prepare an authorized HTTP adapter that requires:
+
+- Explicit target registration.
+- Target ownership or authorization acknowledgement.
+- Consent header.
+- HTTPS or approved HTTP scheme.
+- SSRF protection.
+- Private, loopback, link-local, multicast, and metadata IP blocking.
+- Redirect validation.
+- Per-call timeout.
+- Rate limit.
+- Response extraction configuration.
+- Target configuration hash.
+
+If a remote target cannot accept temporary hardening through an explicit staging contract, classify the scan as evaluation_only and never claim that remote remediation was applied.
+
+============================================================
+PROMPT 13 — REGRESSION CASE PROMOTION
+============================================================
+
+Promote a finding into a regression case only when the finding has a stable attack ID, catalog version, complete evidence, target identity, relevant configuration hash, and a confirmed or explicitly reviewed verdict.
+
+Store:
+
+- Original attack case.
+- Target reference.
+- Evidence references.
+- Expected blocked behavior.
+- Severity.
+- Status.
+- Stable fingerprint.
+- Created and updated timestamps.
+
+Do not promote timeouts or incomplete evaluations as passing or failing security regressions without explicit review.
+
+============================================================
+PROMPT 14 — CI REGRESSION CLI AND SARIF
+============================================================
+
+Build a standalone raven-test CLI for headless CI environments.
+
+The CLI must:
+
+- Load active promoted regression cases.
+- Execute only authorized target suites.
+- Support regression-only mode.
+- Preserve case and target versions.
+- Run deterministic judging.
+- Export JSON and SARIF 2.1.0.
+- Exit non-zero when a critical or high-severity regression returns.
+- Distinguish passed, regressed, not_evaluated, incomplete, and empty-suite states.
+- Never treat an unavailable target, empty suite, or incomplete case as a clean pass.
+
+============================================================
+PROMPT 15 — REPORTING AND INTEGRITY
+============================================================
+
+Design a canonical persisted report document. Generate JSON, Markdown, and SARIF projections from the same evidence model.
+
+The report must contain:
+
+- Target profile and version.
+- Scan configuration.
+- Attack catalog version.
+- Seed and mutation prompts.
+- Target responses.
+- Tool calls and redacted arguments.
+- Deterministic signals.
+- Semantic judge results.
+- Final verdicts.
+- Hardening proposal and approval record.
+- Before and after runs.
+- Benign utility results.
+- Regression cases.
+- Limitations.
+- Generator version.
+- Content integrity hash.
+
+Reports must be idempotent. A repeated report generation from unchanged evidence must produce the same content hash and not create duplicate artifacts.
+
+============================================================
+PROMPT 16 — PRODUCTION RELIABILITY TESTING
+============================================================
+
+Create an end-to-end integration test using a fresh database and real local fixtures:
+
+1. Create a scan.
+2. Enqueue and execute the worker job.
+3. Verify recon profile.
+4. Verify attack attempts and persisted evidence.
+5. Verify deterministic and optional semantic verdicts.
+6. Verify hardening proposal.
+7. Verify approval state.
+8. Approve exactly once.
+9. Execute retest.
+10. Verify security improvement.
+11. Verify benign utility preservation.
+12. Promote a regression case.
+13. Replay regression mode.
+14. Generate JSON, Markdown, and SARIF.
+15. Verify stable report hash.
+16. Simulate a worker interruption and verify safe recovery.
+
+Add negative tests for target timeout, model outage, invalid JSON, duplicate approval, missing policy, unknown tool, empty catalog, empty regression suite, and incomplete utility testing.
+
+============================================================
+PROMPT 17 — DEMONSTRATION AND JUDGE EXPERIENCE
+============================================================
+
+Design a reliable five-minute demonstration of RAVEN for technical and industry judges.
+
+The demo must show one coherent story:
+
+1. Start a scan against the sandboxed ShopHelper target.
+2. Show a prompt-injection or sensitive-data finding.
+3. Show an unauthorized tool-use finding.
+4. Open the exact evidence.
+5. Show the prompt and policy hardening diff.
+6. Approve the temporary proposal.
+7. Retest the attack suite.
+8. Show the attacks blocked.
+9. Show benign customer workflows still passing.
+10. Promote the finding into a regression case.
+11. Show SARIF or CI export.
+
+Use real persisted outputs rather than hardcoded claims. Clearly distinguish tested behavior from a guarantee of complete security. Keep a completed-scan fallback for live-demo reliability.
+
+============================================================
+ARCHITECTURE PRINCIPLES
+============================================================
+
+1. Deterministic checks before probabilistic checks.
+2. Every conclusion must link to evidence.
+3. LLM output is untrusted data, not policy authority.
+4. Autonomous behavior is bounded by count, cost, time, tokens, and concurrency.
+5. Hardening is proposed, reviewed, and tested before acceptance.
+6. Security and normal-use utility are separate metrics.
+7. Incomplete cases are never silently treated as passed.
+8. The demo target uses synthetic data and no real side effects.
+9. External scanning requires explicit authorization and SSRF protection.
+10. A clean result means clean under the stated test catalog and conditions, not globally secure.
+
+FINAL PRODUCT DESCRIPTION
+
+RAVEN is a bounded, human-supervised security regression platform for LLM applications and AI agents. It performs approved adversarial tests, records deterministic and semantic evidence, proposes explainable prompt and tool-policy hardening, waits for human approval, retests both security and legitimate utility, and converts verified vulnerabilities into reusable CI/CD regression tests.

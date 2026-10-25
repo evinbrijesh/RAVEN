@@ -340,43 +340,47 @@ class FindingRepository:
         rows = self._db.query_all(
             "SELECT * FROM findings WHERE scan_id = ? ORDER BY created_at", (scan_id,)
         )
-        return [
-            Finding(
-                finding_id=row["finding_id"],
-                scan_id=row["scan_id"],
-                attack_id=row["attack_id"],
-                category=row["category"],
-                severity=row["severity"],
-                label=FindingLabel(row["label"]),
-                confidence=row["confidence"],
-                summary=row["summary"],
-                evidence_refs=json.loads(row["evidence_refs_json"]),
-                needs_review=bool(row["needs_review"]),
-                status=row["status"],
-                weak_point=json.loads(row["weak_point_json"]) if "weak_point_json" in row.keys() and row["weak_point_json"] else None,
-                created_at=datetime.fromisoformat(row["created_at"]),
+        findings = []
+        for row in rows:
+            d = dict(row)
+            findings.append(
+                Finding(
+                    finding_id=d["finding_id"],
+                    scan_id=d["scan_id"],
+                    attack_id=d["attack_id"],
+                    category=d["category"],
+                    severity=d["severity"],
+                    label=FindingLabel(d["label"]),
+                    confidence=d["confidence"],
+                    summary=d["summary"],
+                    evidence_refs=json.loads(d["evidence_refs_json"]),
+                    needs_review=bool(d["needs_review"]),
+                    status=d["status"],
+                    weak_point=json.loads(d["weak_point_json"]) if d.get("weak_point_json") else None,
+                    created_at=datetime.fromisoformat(d["created_at"]),
+                )
             )
-            for row in rows
-        ]
+        return findings
 
     def get(self, finding_id: str) -> Finding | None:
         row = self._db.query_one("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
         if row is None:
             return None
+        d = dict(row)
         return Finding(
-            finding_id=row["finding_id"],
-            scan_id=row["scan_id"],
-            attack_id=row["attack_id"],
-            category=row["category"],
-            severity=row["severity"],
-            label=FindingLabel(row["label"]),
-            confidence=row["confidence"],
-            summary=row["summary"],
-            evidence_refs=json.loads(row["evidence_refs_json"]),
-            needs_review=bool(row["needs_review"]),
-            status=row["status"],
-            weak_point=json.loads(row["weak_point_json"]) if "weak_point_json" in row.keys() and row["weak_point_json"] else None,
-            created_at=datetime.fromisoformat(row["created_at"]),
+            finding_id=d["finding_id"],
+            scan_id=d["scan_id"],
+            attack_id=d["attack_id"],
+            category=d["category"],
+            severity=d["severity"],
+            label=FindingLabel(d["label"]),
+            confidence=d["confidence"],
+            summary=d["summary"],
+            evidence_refs=json.loads(d["evidence_refs_json"]),
+            needs_review=bool(d["needs_review"]),
+            status=d["status"],
+            weak_point=json.loads(d["weak_point_json"]) if d.get("weak_point_json") else None,
+            created_at=datetime.fromisoformat(d["created_at"]),
         )
 
 
@@ -475,15 +479,16 @@ class ApprovalRepository:
         )
         if row is None:
             return None
+        d = dict(row)
         return Approval(
-            approval_id=row["approval_id"],
-            proposal_id=row["proposal_id"],
-            scan_id=row["scan_id"],
-            approved=bool(row["approved"]),
-            approved_by=row["approved_by"],
-            proposal_hash=row["proposal_hash"] if "proposal_hash" in row.keys() and row["proposal_hash"] else "",
-            decision=row["decision"] if "decision" in row.keys() and row["decision"] else ("approved" if row["approved"] else "rejected"),
-            created_at=datetime.fromisoformat(row["created_at"]),
+            approval_id=d["approval_id"],
+            proposal_id=d["proposal_id"],
+            scan_id=d["scan_id"],
+            approved=bool(d["approved"]),
+            approved_by=d["approved_by"],
+            proposal_hash=d.get("proposal_hash") or "",
+            decision=d.get("decision") or ("approved" if d["approved"] else "rejected"),
+            created_at=datetime.fromisoformat(d["created_at"]),
         )
 
 
