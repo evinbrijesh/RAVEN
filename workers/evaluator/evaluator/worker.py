@@ -84,8 +84,11 @@ async def _worker_slot(
             await process_job(repos, job)
             _complete(repos, job["job_id"])
         except Exception as exc:
+            import traceback
+
+            tb_str = traceback.format_exc()
             logger.exception("job %s failed", job["job_id"])
-            _fail(repos, job["job_id"], str(exc))
+            _fail(repos, job["job_id"], str(exc), traceback=tb_str)
         finally:
             current_task = asyncio.current_task()
             if current_task and current_task in active_tasks:
@@ -157,10 +160,10 @@ def _complete(repos: Repositories, job_id: str) -> None:
     SqliteJobQueue(repos.db).complete(job_id)
 
 
-def _fail(repos: Repositories, job_id: str, error: str) -> None:
+def _fail(repos: Repositories, job_id: str, error: str, traceback: str | None = None) -> None:
     from app.infrastructure.queue.sqlite_queue import SqliteJobQueue
 
-    SqliteJobQueue(repos.db).fail(job_id, error)
+    SqliteJobQueue(repos.db).fail(job_id, error, traceback=traceback)
 
 
 if __name__ == "__main__":

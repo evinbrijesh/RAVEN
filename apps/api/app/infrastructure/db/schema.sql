@@ -185,6 +185,18 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, created_at);
 
+CREATE TABLE IF NOT EXISTS job_dead_letters (
+    dead_letter_id   TEXT PRIMARY KEY,
+    job_id           TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    payload_json     TEXT NOT NULL,
+    attempts         INTEGER NOT NULL,
+    error            TEXT,
+    traceback        TEXT,
+    dead_lettered_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_jdl_job_id ON job_dead_letters(job_id);
+
 -- LangGraph durable checkpoint tables
 CREATE TABLE IF NOT EXISTS checkpoints (
     thread_id            TEXT NOT NULL,

@@ -18,12 +18,23 @@ from app.infrastructure.db.repository import Repositories
 router = APIRouter(prefix="/api/scans", tags=["events"])
 
 POLL_INTERVAL_SECONDS = 0.4
-TERMINAL_STATUSES = {"completed", "completed_without_retest", "failed_partial", "failed_fatal"}
+TERMINAL_STATUSES = {
+    "completed",
+    "completed_without_retest",
+    "completed_with_limitations",
+    "failed_partial",
+    "failed_fatal",
+    "inconclusive",
+}
 
 
 @router.get("/{scan_id}/events")
+@router.get("/{scan_id}/events/stream")
 async def stream_events(
-    scan_id: str, request: Request, repos: Repositories = Depends(get_repositories)
+    scan_id: str,
+    request: Request,
+    last_event_id: int | None = None,
+    repos: Repositories = Depends(get_repositories),
 ) -> StreamingResponse:
     if repos.scans.get(scan_id) is None:
         from fastapi import HTTPException, status
@@ -33,18 +44,30 @@ async def stream_events(
             detail={"code": "NOT_FOUND", "message": f"Scan '{scan_id}' not found."},
         )
 
+    # Check Last-Event-ID header (standard SSE header) or query parameter
+    header_val = request.headers.get("Last-Event-ID")
+    resume_from_id = 0
+    if last_event_id is not None:
+        resume_from_id = last_event_id
+    elif header_val:
+        try:
+            resume_from_id = int(header_val)
+        except ValueError:
+            resume_from_id = 0
+
     async def generator():
-        last_event_id = 0
+        curr_event_id = resume_from_id
         while True:
             if await request.is_disconnected():
                 break
-            events = repos.events.list_since(scan_id, last_event_id)
+            events = repos.events.list_since(scan_id, curr_event_id)
             for event in events:
-                last_event_id = event.event_id or 0
+                curr_event_id = event.event_id or curr_event_id
                 data = json.dumps(
-                    {"kind": event.kind.value, **event.payload}, default=str
+                    {"event_id": event.event_id, "kind": event.kind.value, **event.payload},
+                    default=str,
                 )
-                yield f"event: {event.kind.value}\ndata: {data}\n\n"
+                yield f"id: {event.event_id}\nevent: {event.kind.value}\ndata: {data}\n\n"
             scan = repos.scans.get(scan_id)
             if scan is not None and scan.status.value in TERMINAL_STATUSES and not events:
                 yield (
@@ -56,7 +79,11 @@ async def stream_events(
     return StreamingResponse(
         generator(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
