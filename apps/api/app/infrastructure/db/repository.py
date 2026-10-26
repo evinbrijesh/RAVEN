@@ -205,15 +205,34 @@ class RunRepository:
         )
 
     def save_transcript(self, transcript: Transcript, run_id: str) -> None:
+        from app.security import compute_run_artifact_hash, redact_transcript
+
+        sanitized = redact_transcript(transcript)
+        content_sha256 = compute_run_artifact_hash(sanitized)
+        sanitized_json = sanitized.model_dump_json()
+
         self._db.execute(
-            "INSERT OR REPLACE INTO transcripts (transcript_id, run_id, messages_json)"
-            " VALUES (?, ?, ?)",
-            (transcript.transcript_id, run_id, transcript.model_dump_json()),
+            "INSERT OR REPLACE INTO transcripts (transcript_id, run_id, messages_json, content_sha256)"
+            " VALUES (?, ?, ?, ?)",
+            (sanitized.transcript_id, run_id, sanitized_json, content_sha256),
         )
         self._db.execute(
-            "UPDATE attack_runs SET transcript_json = ? WHERE run_id = ?",
-            (transcript.model_dump_json(), run_id),
+            "UPDATE attack_runs SET transcript_json = ?, artifact_sha256 = ? WHERE run_id = ?",
+            (sanitized_json, content_sha256, run_id),
         )
+
+    def get_transcript_hash(self, run_id: str) -> str | None:
+        row = self._db.query_one(
+            "SELECT content_sha256 FROM transcripts WHERE run_id = ?", (run_id,)
+        )
+        if row and row["content_sha256"]:
+            return str(row["content_sha256"])
+        row = self._db.query_one(
+            "SELECT artifact_sha256 FROM attack_runs WHERE run_id = ?", (run_id,)
+        )
+        if row and row["artifact_sha256"]:
+            return str(row["artifact_sha256"])
+        return None
 
     def save_verdict(self, verdict: Verdict) -> Verdict:
         self._db.execute(

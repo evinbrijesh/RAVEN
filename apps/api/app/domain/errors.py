@@ -33,6 +33,13 @@ class NotFoundError(RavenError):
     code = "NOT_FOUND"
 
 
+class ConflictError(RavenError):
+    """Raised when an operation conflicts with the current resource state or is a duplicate action."""
+
+    code = "CONFLICT"
+    retryable = False
+
+
 class ValidationFailed(RavenError):
     code = "VALIDATION_FAILED"
 

@@ -31,3 +31,13 @@ class LocalEvidenceStore:
         if not path.exists():
             return None
         return path.read_text(encoding="utf-8")
+
+    def save_artifact_with_hash(
+        self, scan_id: str, name: str, content: str
+    ) -> tuple[Path, str]:
+        from app.security.hashing import compute_sha256
+
+        path = self.save(scan_id, name, content)
+        digest = compute_sha256(content)
+        return path, digest
+

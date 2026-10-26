@@ -27,6 +27,8 @@ class EvidenceRef(BaseModel):
     ref_id: str
     kind: str  # transcript | run | rule_check | model_call | approval | test_run
     description: str = ""
+    sha256: str = ""
+
 
 
 class TargetRef(BaseModel):

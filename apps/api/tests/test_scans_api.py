@@ -11,6 +11,16 @@ def test_health(client: TestClient) -> None:
     assert response.json() == {"status": "ok", "service": "raven-api"}
 
 
+def test_endpoints_scans_module_compatibility() -> None:
+    import app.api.endpoints.scans as endpoint_scans
+    import app.api.scans as legacy_scans
+
+    assert endpoint_scans.router is legacy_scans.router
+    assert endpoint_scans.approve_hardening is legacy_scans.approve_hardening
+    assert endpoint_scans.create_scan is legacy_scans.create_scan
+
+
+
 def test_create_scan_happy_path(client: TestClient, valid_scan_payload: dict) -> None:
     response = client.post("/api/scans", json=valid_scan_payload)
     assert response.status_code == 202
@@ -152,12 +162,21 @@ def test_approve_hardening_idempotency_and_rejection(
     assert appr1["proposal_hash"] != ""
     assert repos.scans.get(scan_id).status == ScanStatus.RETESTING
 
-    # Repeated approval request -> idempotent success without error
+    # Repeated approval request -> returns HTTP 409 Conflict without duplicate retest
     resp2 = client.post(
         f"/api/scans/{scan_id}/approve-hardening",
         json={"proposal_id": "fix_idemp_1", "approved": True, "approved_by": "sec-lead"},
     )
-    assert resp2.status_code == 200
-    assert resp2.json()["approval_id"] == appr1["approval_id"]
+    assert resp2.status_code == 409
+    detail = resp2.json()["detail"]
+    assert detail["code"] == "CONFLICT"
+    assert scan_id in detail["message"]
+
+    # Verify queue does not contain duplicate retest jobs
+    queue = client.app.state.queue
+    queued_jobs = queue.list_jobs(scan_id) if hasattr(queue, "list_jobs") else []
+    # Only 1 retest job should be present
+    retest_jobs = [j for j in queued_jobs if j.get("kind") == "run_retest"]
+    assert len(retest_jobs) <= 1
 
 

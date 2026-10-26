@@ -11,7 +11,7 @@ from typing import Protocol
 
 from app.domain.entities import Approval, HardeningProposal, ScanEvent, utc_now
 from app.domain.enums import EventKind, ScanStatus
-from app.domain.errors import NotFoundError, ValidationFailed
+from app.domain.errors import ConflictError, NotFoundError, ValidationFailed
 from app.infrastructure.db.repository import Repositories
 
 
@@ -43,14 +43,17 @@ class ApproveHardening:
                 f"Proposal '{proposal_id}' has been superseded by '{latest.proposal_id}' and cannot be approved."
             )
 
-        # Idempotency check: if already approved/decided for this proposal
+        # Idempotency check: duplicate calls return ConflictError (HTTP 409) without spawning duplicate retests
         existing = self._repos.approvals.get_for_proposal(proposal_id)
-        if existing is not None and scan.status in (
+        if existing is not None or scan.status in (
             ScanStatus.RETESTING,
             ScanStatus.COMPLETED,
             ScanStatus.COMPLETED_WITHOUT_RETEST,
         ):
-            return existing
+            raise ConflictError(
+                f"Approval has already been processed for scan '{scan_id}'.",
+                details={"scan_id": scan_id, "proposal_id": proposal_id},
+            )
 
         if scan.status != ScanStatus.AWAITING_APPROVAL:
             raise ValidationFailed(
