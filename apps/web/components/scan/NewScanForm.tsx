@@ -9,6 +9,7 @@ import {
   type ScanConfig,
 } from "@/lib/types";
 import { ErrorBlock } from "@/components/ui/StateViews";
+import { useProject } from "@/lib/project-context";
 
 const CATEGORY_LABELS: Record<AttackCategory, string> = {
   direct_injection: "Direct injection",
@@ -43,6 +44,7 @@ const DEFAULT_CONFIG: ScanConfig = {
 
 export default function NewScanForm() {
   const router = useRouter();
+  const { currentProject } = useProject();
   const [targetMode, setTargetMode] = useState<"local" | "http">("local");
   const [externalUrl, setExternalUrl] = useState("");
   const [categories, setCategories] = useState<AttackCategory[]>([
@@ -114,6 +116,7 @@ export default function NewScanForm() {
     setSubmitting(true);
     const config: ScanConfig = {
       target_id: targetMode === "local" ? "shophelper-local" : externalUrl.trim(),
+      project_id: currentProject.project_id,
       attack_categories: categories,
       max_attempts_per_attack: maxAttempts,
       enable_mutation: enableMutation,

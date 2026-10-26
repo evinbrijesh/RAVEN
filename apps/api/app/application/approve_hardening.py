@@ -60,6 +60,32 @@ class ApproveHardening:
                 f"Scan is in status '{scan.status.value}'; approval requires 'awaiting_approval'."
             )
 
+        next_status = (
+            ScanStatus.RETESTING if approved else ScanStatus.COMPLETED_WITHOUT_RETEST
+        )
+
+        # Atomic state transition guard: prevents concurrent duplicate clicks from spawning duplicate jobs
+        transitioned = self._repos.scans.atomic_transition(
+            scan_id, expected_status=ScanStatus.AWAITING_APPROVAL, new_status=next_status
+        )
+        if not transitioned:
+            refreshed = self._repos.scans.get(scan_id)
+            refreshed_appr = self._repos.approvals.get_for_proposal(proposal_id)
+            if refreshed_appr is not None or (
+                refreshed and refreshed.status in (
+                    ScanStatus.RETESTING,
+                    ScanStatus.COMPLETED,
+                    ScanStatus.COMPLETED_WITHOUT_RETEST,
+                )
+            ):
+                raise ConflictError(
+                    f"Approval has already been processed for scan '{scan_id}'.",
+                    details={"scan_id": scan_id, "proposal_id": proposal_id},
+                )
+            raise ValidationFailed(
+                f"Scan is in status '{refreshed.status.value if refreshed else 'unknown'}'; approval requires 'awaiting_approval'."
+            )
+
         # Compute tamper-evident hash of proposal diffs
         proposal_content = f"{proposal.prompt_diff}:{proposal.policy_diff}:{proposal.rationale}"
         proposal_hash = hashlib.sha256(proposal_content.encode("utf-8")).hexdigest()[:16]
@@ -88,10 +114,6 @@ class ApproveHardening:
                 },
             )
         )
-        next_status = (
-            ScanStatus.RETESTING if approved else ScanStatus.COMPLETED_WITHOUT_RETEST
-        )
-        self._repos.scans.update_status(scan_id, next_status)
         if approved and self._queue is not None:
             self._queue.enqueue("run_retest", {"scan_id": scan_id})
         return approval

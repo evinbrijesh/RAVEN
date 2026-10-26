@@ -124,6 +124,13 @@ class Database:
             conn.execute(sql, params)
             conn.commit()
 
+    def execute_rowcount(self, sql: str, params: tuple[Any, ...] = ()) -> int:
+        with self._lock:
+            conn = self.connect()
+            cursor = conn.execute(sql, params)
+            conn.commit()
+            return cursor.rowcount
+
     def query_all(self, sql: str, params: tuple[Any, ...] = ()) -> list[sqlite3.Row]:
         with self._lock:
             conn = self.connect()

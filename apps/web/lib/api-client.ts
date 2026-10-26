@@ -5,9 +5,11 @@
 import type {
   ApiError,
   ApproveHardeningResponse,
+  ArtifactVerification,
   CreateScanResponse,
   FindingsResponse,
   HardeningProposal,
+  Project,
   RegressionCase,
   RegressionsResponse,
   Report,
@@ -98,8 +100,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // Endpoints
 // ---------------------------------------------------------------------------
 
-export function listScans(): Promise<ScanListItem[]> {
-  return request<ScanListItem[]>("/api/scans");
+export function listProjects(): Promise<Project[]> {
+  return request<Project[]>("/api/projects");
+}
+
+export function createProject(project: {
+  project_id: string;
+  name: string;
+  description?: string;
+}): Promise<Project> {
+  return request<Project>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(project),
+  });
+}
+
+export function listScans(projectId?: string): Promise<ScanListItem[]> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<ScanListItem[]>(`/api/scans${query}`);
 }
 
 export function createScan(config: ScanConfig): Promise<CreateScanResponse> {
@@ -109,8 +127,9 @@ export function createScan(config: ScanConfig): Promise<CreateScanResponse> {
   });
 }
 
-export function getScan(scanId: string): Promise<ScanView> {
-  return request<ScanView>(`/api/scans/${encodeURIComponent(scanId)}`);
+export function getScan(scanId: string, projectId?: string): Promise<ScanView> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return request<ScanView>(`/api/scans/${encodeURIComponent(scanId)}${query}`);
 }
 
 export function getScanEvents(
@@ -121,9 +140,10 @@ export function getScanEvents(
   );
 }
 
-export function getFindings(scanId: string): Promise<FindingsResponse> {
+export function getFindings(scanId: string, projectId?: string): Promise<FindingsResponse> {
+  const query = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
   return request<FindingsResponse>(
-    `/api/scans/${encodeURIComponent(scanId)}/findings`,
+    `/api/scans/${encodeURIComponent(scanId)}/findings${query}`,
   );
 }
 
@@ -230,8 +250,27 @@ export function reportFilename(scanId: string, format: ReportFormat): string {
   return `raven-${scanId}-report.${REPORT_EXTENSIONS[format]}`;
 }
 
-export function listRegressions(targetId = "shophelper-local"): Promise<RegressionsResponse> {
-  return request<RegressionsResponse>(`/api/regressions?target_id=${encodeURIComponent(targetId)}`);
+export function listRegressions(
+  targetId = "shophelper-local",
+  projectId?: string,
+): Promise<RegressionsResponse> {
+  let path = `/api/regressions?target_id=${encodeURIComponent(targetId)}`;
+  if (projectId) {
+    path += `&project_id=${encodeURIComponent(projectId)}`;
+  }
+  return request<RegressionsResponse>(path);
+}
+
+export function verifyArtifact(
+  scanId: string,
+  artifactId: string,
+  projectId?: string,
+): Promise<ArtifactVerification> {
+  let path = `/api/scans/${encodeURIComponent(scanId)}/artifacts/${encodeURIComponent(artifactId)}/verify`;
+  if (projectId) {
+    path += `?project_id=${encodeURIComponent(projectId)}`;
+  }
+  return request<ArtifactVerification>(path);
 }
 
 export function toggleRegression(regressionId: string): Promise<{ regression_id: string; active: boolean; status: string }> {

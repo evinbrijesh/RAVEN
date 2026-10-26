@@ -24,6 +24,7 @@ import {
   WorkerUnavailableBanner,
   ModelUnavailableNotice,
 } from "@/components/ui/StateViews";
+import { useProject } from "@/lib/project-context";
 
 /* ─── Telemetry metrics data (21st.dev Stats Bento pattern) ──────────────── */
 const METRICS = [
@@ -139,6 +140,7 @@ function AreaSparkline({ data, color }: { data: number[]; color: string }) {
 }
 
 export default function DashboardPage() {
+  const { currentProject } = useProject();
   const hasScans = RECENT_SCANS.length > 0;
   const [readiness, setReadiness] = useState<SystemReadiness | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -175,6 +177,9 @@ export default function DashboardPage() {
               <span className="flex h-2 w-2 rounded-full bg-teal-400" />
               <span className="text-[11px] font-mono tracking-wider uppercase text-[var(--text-muted)]">
                 Security Regression Suite
+              </span>
+              <span className="text-[10px] font-mono text-teal-400 border border-teal-800/40 bg-teal-950/40 px-2 py-0.5 rounded">
+                Workspace: {currentProject.name} ({currentProject.project_id})
               </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-[var(--text-primary)]">

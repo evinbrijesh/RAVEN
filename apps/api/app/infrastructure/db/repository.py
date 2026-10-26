@@ -137,6 +137,22 @@ class ScanRepository:
                 (status.value, progress, _now(), completed_at, scan_id),
             )
 
+    def atomic_transition(
+        self, scan_id: str, expected_status: ScanStatus, new_status: ScanStatus
+    ) -> bool:
+        """Atomically transition scan status from expected_status to new_status.
+
+        Returns True if the transition succeeded, or False if the scan was not in
+        expected_status (concurrency conflict).
+        """
+        completed_at = _now() if new_status in _TERMINAL_SCAN_STATUSES else None
+        rows = self._db.execute_rowcount(
+            "UPDATE scans SET status = ?, updated_at = ?,"
+            " completed_at = COALESCE(completed_at, ?) WHERE scan_id = ? AND status = ?",
+            (new_status.value, _now(), completed_at, scan_id, expected_status.value),
+        )
+        return rows > 0
+
     def list(self, project_id: str | None = None) -> list[Scan]:
         if project_id is not None:
             rows = self._db.query_all(
@@ -251,6 +267,16 @@ class RunRepository:
         if row and row["artifact_sha256"]:
             return str(row["artifact_sha256"])
         return None
+
+    def get_transcript_artifact(self, scan_id: str, artifact_id: str) -> dict[str, Any] | None:
+        row = self._db.query_one(
+            "SELECT t.transcript_id, t.run_id, t.messages_json, t.content_sha256, a.scan_id"
+            " FROM transcripts t JOIN attack_runs a ON t.run_id = a.run_id"
+            " WHERE a.scan_id = ? AND (t.transcript_id = ? OR t.run_id = ? OR a.run_id = ?)"
+            " ORDER BY a.started_at DESC LIMIT 1",
+            (scan_id, artifact_id, artifact_id, artifact_id),
+        )
+        return dict(row) if row is not None else None
 
     def save_verdict(self, verdict: Verdict) -> Verdict:
         self._db.execute(
@@ -833,6 +859,14 @@ class ReportRepository:
         if row is None:
             return None
         return dict(row)
+
+    def get_artifact_by_id(self, scan_id: str, artifact_id: str) -> dict[str, Any] | None:
+        row = self._db.query_one(
+            "SELECT * FROM report_artifacts WHERE scan_id = ? AND (artifact_id = ? OR format = ?)"
+            " ORDER BY created_at DESC LIMIT 1",
+            (scan_id, artifact_id, artifact_id),
+        )
+        return dict(row) if row is not None else None
 
 
 class Repositories:

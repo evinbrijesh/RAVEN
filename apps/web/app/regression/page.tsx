@@ -31,6 +31,7 @@ import {
   ApiRequestError,
 } from "@/lib/api-client";
 import type { RegressionCase, RegressionsResponse } from "@/lib/types";
+import { useProject } from "@/lib/project-context";
 
 /* ─── Two-Dimensional Security-vs-Utility Scores ──────────────────────────── */
 interface ScoreMetric {
@@ -91,6 +92,7 @@ const WORKFLOW_STEPS = [
 
 export default function RegressionSuitePage() {
   const router = useRouter();
+  const { currentProject } = useProject();
   const [data, setData] = useState<RegressionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,7 +103,7 @@ export default function RegressionSuitePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await listRegressions("shophelper-local");
+      const res = await listRegressions("shophelper-local", currentProject.project_id);
       setData(res);
     } catch (err) {
       setError(
@@ -112,7 +114,7 @@ export default function RegressionSuitePage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentProject.project_id]);
 
   useEffect(() => {
     void fetchSuite();
@@ -169,6 +171,9 @@ export default function RegressionSuitePage() {
               </span>
               <span className="font-mono text-[11px] text-[var(--text-muted)]">
                 Target: shophelper-local
+              </span>
+              <span className="font-mono text-[11px] text-teal-400 border border-teal-800/40 bg-teal-950/40 px-2 py-0.5 rounded">
+                Workspace: {currentProject.name}
               </span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight text-[var(--text-primary)]">

@@ -89,8 +89,29 @@ export interface Budget {
   concurrency_limit: number;
 }
 
+export interface Project {
+  project_id: string;
+  name: string;
+  description?: string;
+  created_at?: string;
+}
+
+export interface ArtifactVerification {
+  artifact_id: string;
+  scan_id: string;
+  run_id?: string;
+  artifact_type: "report" | "transcript";
+  format: string;
+  valid: boolean;
+  tampered: boolean;
+  expected_sha256: string;
+  computed_sha256: string;
+  verified_at: string;
+}
+
 export interface ScanConfig {
   target_id: string;
+  project_id?: string;
   attack_categories: AttackCategory[];
   max_attempts_per_attack: number;
   enable_mutation: boolean;
@@ -124,6 +145,7 @@ export interface TargetProfile {
 
 export interface ScanView {
   scan_id: string;
+  project_id?: string;
   status: ScanStatus;
   phase: string;
   progress: number;
@@ -136,6 +158,7 @@ export interface ScanView {
 /** Item of GET /api/scans (list endpoint). */
 export interface ScanListItem {
   scan_id: string;
+  project_id?: string;
   status: ScanStatus;
   target_id: string;
 }

@@ -11,6 +11,7 @@ from app.api.endpoints.scans import (
     get_scan,
     list_scans,
     router,
+    verify_artifact,
 )
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "get_scan",
     "list_scans",
     "router",
+    "verify_artifact",
 ]

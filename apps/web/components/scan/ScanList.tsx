@@ -5,8 +5,10 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiRequestError, listScans } from "@/lib/api-client";
 import type { ScanListItem } from "@/lib/types";
 import { ErrorBlock, LoadingBlock, StatusBadge } from "@/components/ui/StateViews";
+import { useProject } from "@/lib/project-context";
 
 export default function ScanList() {
+  const { currentProject } = useProject();
   const [scans, setScans] = useState<ScanListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -14,7 +16,7 @@ export default function ScanList() {
     setError(null);
     setScans(null);
     try {
-      const items = await listScans();
+      const items = await listScans(currentProject.project_id);
       setScans(items);
     } catch (cause) {
       setError(
@@ -23,7 +25,7 @@ export default function ScanList() {
           : "Failed to load scans.",
       );
     }
-  }, []);
+  }, [currentProject.project_id]);
 
   useEffect(() => {
     void load();

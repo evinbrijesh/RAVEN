@@ -9,14 +9,13 @@ Verifies:
 from __future__ import annotations
 
 import json
+
 from fastapi.testclient import TestClient
 
 from app.domain.entities import (
     AttackCase,
     Finding,
-    HardeningProposal,
     TargetProfile,
-    TestRun,
     Transcript,
     TranscriptMessage,
     Verdict,
@@ -26,9 +25,7 @@ from app.domain.enums import (
     FindingLabel,
     RunPhase,
     RunStatus,
-    ScanStatus,
     Severity,
-    TestRunKind,
     VerdictResolution,
 )
 from app.domain.value_objects import EvidenceRef

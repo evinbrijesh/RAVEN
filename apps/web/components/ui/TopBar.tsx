@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -12,7 +12,12 @@ import {
   ArrowRight,
   Sparkles,
   Command,
+  ChevronDown,
+  Check,
+  Plus,
+  FolderGit2,
 } from "lucide-react";
+import { useProject } from "@/lib/project-context";
 
 interface BreadcrumbItem {
   label: string;
@@ -113,6 +118,147 @@ function CommandPalette({ onClose }: { onClose: () => void }) {
   );
 }
 
+function ProjectSelector() {
+  const { currentProject, projects, setProjectId, createAndSelectProject } = useProject();
+  const [open, setOpen] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [newId, setNewId] = useState("");
+  const [newName, setNewName] = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setShowNew(false);
+      }
+    };
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [open]);
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newId.trim() || !newName.trim()) return;
+    await createAndSelectProject(newId.trim(), newName.trim());
+    setNewId("");
+    setNewName("");
+    setShowNew(false);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        className="flex items-center gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-2.5 py-1 text-xs text-[var(--text-secondary)] hover:border-[var(--border-subtle)] hover:text-[var(--text-primary)] transition-colors"
+        aria-label="Select Project Workspace"
+      >
+        <FolderGit2 className="h-3.5 w-3.5 text-teal-400" />
+        <span className="font-mono text-[11px] font-medium text-[var(--text-primary)] max-w-[130px] truncate">
+          {currentProject.name}
+        </span>
+        <ChevronDown className={`h-3 w-3 text-zinc-500 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 w-72 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-overlay)] p-2 shadow-2xl backdrop-blur-xl z-50 animate-fade-in font-mono">
+          <div className="flex items-center justify-between border-b border-[var(--border-hairline)] px-2 pb-2 mb-1">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--text-muted)]">
+              Project Workspace
+            </span>
+            <span className="text-[9px] text-teal-400 bg-teal-950/60 border border-teal-800/40 px-1.5 py-0.2 rounded">
+              Multi-Tenant
+            </span>
+          </div>
+
+          <div className="max-h-52 overflow-y-auto space-y-1 py-1">
+            {projects.map((proj) => {
+              const isActive = proj.project_id === currentProject.project_id;
+              return (
+                <button
+                  key={proj.project_id}
+                  type="button"
+                  onClick={() => {
+                    setProjectId(proj.project_id);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-start justify-between gap-2 rounded px-2 py-1.5 text-left text-xs transition-colors ${
+                    isActive
+                      ? "bg-teal-950/40 text-teal-300 border border-teal-800/30"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-raised)] hover:text-[var(--text-primary)]"
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium truncate">{proj.name}</span>
+                      <span className="text-[9px] text-zinc-500">({proj.project_id})</span>
+                    </div>
+                    {proj.description && (
+                      <p className="text-[10px] text-zinc-500 truncate mt-0.5">{proj.description}</p>
+                    )}
+                  </div>
+                  {isActive && <Check className="h-3.5 w-3.5 text-teal-400 shrink-0 mt-0.5" />}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="border-t border-[var(--border-hairline)] pt-1.5 mt-1">
+            {!showNew ? (
+              <button
+                type="button"
+                onClick={() => setShowNew(true)}
+                className="w-full flex items-center gap-1.5 rounded px-2 py-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--accent)] hover:bg-[var(--bg-raised)] transition-colors"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>New Project Workspace</span>
+              </button>
+            ) : (
+              <form onSubmit={handleCreate} className="p-2 space-y-2 bg-[var(--bg-surface)] rounded border border-[var(--border-hairline)]">
+                <p className="text-[10px] font-semibold text-[var(--text-primary)]">Add Workspace</p>
+                <input
+                  type="text"
+                  placeholder="Project ID (e.g. proj_sec)"
+                  value={newId}
+                  onChange={(e) => setNewId(e.target.value)}
+                  className="w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[11px] text-[var(--text-primary)] placeholder-zinc-600 outline-none"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  placeholder="Project Name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  className="w-full rounded border border-[var(--border-subtle)] bg-[var(--bg-base)] px-2 py-1 text-[11px] text-[var(--text-primary)] placeholder-zinc-600 outline-none"
+                />
+                <div className="flex items-center justify-end gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowNew(false)}
+                    className="rounded px-2 py-0.5 text-[10px] text-zinc-400 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="rounded bg-teal-500 px-2.5 py-0.5 text-[10px] font-medium text-black hover:bg-teal-400"
+                  >
+                    Create
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const STATUS_CHIP: Record<string, { cls: string; dot: string }> = {
   created:                  { cls: "bg-zinc-800/60 text-zinc-400 border-zinc-700", dot: "bg-zinc-400" },
   reconning:                { cls: "bg-sky-950/60 text-sky-300 border-sky-800/40", dot: "bg-sky-400" },
@@ -169,8 +315,11 @@ export default function TopBar({ breadcrumbs = [], scanStatus, showTarget = true
           ))}
         </nav>
 
-        {/* Right controls: target badge + status + command palette */}
+        {/* Right controls: project selector + target badge + status + command palette */}
         <div className="flex items-center gap-3">
+          {/* Project Workspace Selector */}
+          <ProjectSelector />
+
           {/* Target telemetry badge */}
           {showTarget && (
             <div className="flex items-center gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--bg-base)] px-2.5 py-1 font-mono text-[11px] text-[var(--text-secondary)]">
