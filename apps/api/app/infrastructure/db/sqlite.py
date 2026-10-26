@@ -50,7 +50,15 @@ class Database:
             self._add_missing_columns(conn)
             conn.executescript(ddl)
             self._add_unique_indexes(conn)
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO projects (project_id, name, description, created_at)"
+                    " VALUES ('default', 'Default Project', 'Default workspace project', datetime('now'))"
+                )
+            except sqlite3.Error:
+                pass
             conn.commit()
+
 
     @staticmethod
     def _add_unique_indexes(conn: sqlite3.Connection) -> None:
@@ -97,6 +105,9 @@ class Database:
             ("approvals", "decision", "TEXT NOT NULL DEFAULT 'approved'"),
             ("attack_runs", "artifact_sha256", "TEXT NOT NULL DEFAULT ''"),
             ("transcripts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
+            ("scans", "project_id", "TEXT NOT NULL DEFAULT 'default'"),
+            ("findings", "project_id", "TEXT NOT NULL DEFAULT 'default'"),
+            ("regression_cases", "project_id", "TEXT NOT NULL DEFAULT 'default'"),
         ]
         for table, column, ddl_type in additions:
             if table not in existing_tables:

@@ -25,19 +25,22 @@ router = APIRouter(prefix="/api/regressions", tags=["regressions"])
 
 class RunRegressionRequest(BaseModel):
     target_id: str = Field(default="shophelper-local")
+    project_id: str = Field(default="default")
 
 
 @router.get("")
 def list_regressions(
     target_id: str | None = Query(default=None),
+    project_id: str | None = Query(default=None),
     repos: Repositories = Depends(get_repositories),
 ) -> dict[str, Any]:
     """List persistent regression cases, seeding defaults from catalog if empty."""
     tid = target_id or "shophelper-local"
-    items = repos.regressions.list_all(tid)
+    items = repos.regressions.list_all(tid, project_id=project_id)
 
     # If empty, seed initial baseline regression cases from versioned catalog
-    if not items:
+    if not items and (project_id is None or project_id == "default"):
+
         try:
             cases = load_catalog_cases()
             # Pick key demonstration attack cases: direct injection, canary leakage, sensitive data, tool misuse
@@ -109,6 +112,7 @@ def run_regression_suite(
     """Trigger a regression-only evaluation pass against the target."""
     config = ScanConfig(
         target_id=payload.target_id,
+        project_id=payload.project_id,
         regression_only_mode=True,
         run_benign_suite=True,
     )

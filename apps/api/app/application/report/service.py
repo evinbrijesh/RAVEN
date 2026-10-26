@@ -14,10 +14,11 @@ from dataclasses import dataclass
 
 from app.application.report.assembler import assemble, generator_version
 from app.application.report.collector import EvidenceBundle, collect
-from app.application.report.redaction import redact_payload, truncate_transcripts
+from app.application.report.redaction import redact_payload, redact_text, truncate_transcripts
 from app.application.report.renderers.json import render_json
 from app.application.report.renderers.markdown import render_markdown
 from app.application.report.renderers.sarif import render_sarif
+from app.domain.errors import NotFoundError
 from app.domain.report import ReportDocument
 from app.infrastructure.db.repository import Repositories
 
@@ -41,8 +42,13 @@ def _canonical_hash(payload: dict) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def generate(repos: Repositories, scan_id: str) -> ReportResult:
+def generate(repos: Repositories, scan_id: str, project_id: str | None = None) -> ReportResult:
     """Generate (or reuse) the report artifacts for a scan."""
+    if project_id is not None:
+        scan = repos.scans.get(scan_id, project_id=project_id)
+        if scan is None:
+            raise NotFoundError(f"Scan '{scan_id}' not found in project '{project_id}'.")
+
     bundle: EvidenceBundle = collect(repos, scan_id)
     document = assemble(bundle)
 
@@ -63,7 +69,7 @@ def generate(repos: Repositories, scan_id: str) -> ReportResult:
     # Revalidate: the redacted payload must still satisfy the v1.0 contract.
     final_document = ReportDocument.model_validate(payload)
 
-    json_text = render_json(final_document)
+    json_text = redact_text(render_json(final_document), canary)
     gen_version = generator_version()
     artifact_id = repos.reports.save_artifact(
         scan_id,
@@ -74,7 +80,7 @@ def generate(repos: Repositories, scan_id: str) -> ReportResult:
         generator_version=gen_version,
     )
 
-    markdown_text = render_markdown(final_document)
+    markdown_text = redact_text(render_markdown(final_document), canary)
     repos.reports.save_artifact(
         scan_id,
         "markdown",
@@ -84,7 +90,7 @@ def generate(repos: Repositories, scan_id: str) -> ReportResult:
         generator_version=gen_version,
     )
 
-    sarif_text = render_sarif(final_document)
+    sarif_text = redact_text(render_sarif(final_document), canary)
     repos.reports.save_artifact(
         scan_id,
         "sarif",
@@ -102,3 +108,4 @@ def generate(repos: Repositories, scan_id: str) -> ReportResult:
         markdown_text=markdown_text,
         sarif_text=sarif_text,
     )
+

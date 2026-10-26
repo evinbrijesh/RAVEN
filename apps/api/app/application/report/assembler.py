@@ -755,7 +755,9 @@ def assemble(bundle: EvidenceBundle) -> ReportDocument:
             created_at=scan.created_at,
             completed_at=scan.completed_at,
             target=ReportTarget(id=scan.target.target_id, version=scan.target.version),
-            config=ReportScanConfig(**scan.config.model_dump()),
+            config=ReportScanConfig(
+                **{k: v for k, v in scan.config.model_dump().items() if k != "project_id"}
+            ),
             profile=_profile_view(bundle.profile),
         ),
         summary=summary,

@@ -28,10 +28,20 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+class Project(BaseModel):
+    """Multi-tenant project / workspace entity."""
+
+    project_id: str
+    name: str
+    description: str = ""
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class ScanConfig(BaseModel):
     """Configuration captured at scan creation (docs/API_CONTRACT.md §2)."""
 
     target_id: str
+    project_id: str = "default"
     attack_categories: list[AttackCategory] = Field(default_factory=list)
     max_attempts_per_attack: int = Field(default=2, ge=1, le=2)
     enable_mutation: bool = True
@@ -42,6 +52,7 @@ class ScanConfig(BaseModel):
 
 class Scan(BaseModel):
     scan_id: str
+    project_id: str = "default"
     status: ScanStatus = ScanStatus.CREATED
     target: TargetRef
     config: ScanConfig
@@ -78,6 +89,7 @@ class ScanView(BaseModel):
     """API view of a scan (docs/API_CONTRACT.md §3)."""
 
     scan_id: str
+    project_id: str = "default"
     status: ScanStatus
     phase: str = ""
     progress: float = 0.0
@@ -85,6 +97,7 @@ class ScanView(BaseModel):
     counts: ScanCounts = Field(default_factory=ScanCounts)
     security_metrics: SecurityMetrics = Field(default_factory=SecurityMetrics)
     profile: TargetProfile | None = None
+
 
 
 class AttackCase(BaseModel):
@@ -174,6 +187,7 @@ class WeakPoint(BaseModel):
 class Finding(BaseModel):
     finding_id: str
     scan_id: str
+    project_id: str = "default"
     attack_id: str
     category: AttackCategory
     severity: Severity

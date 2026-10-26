@@ -36,6 +36,7 @@ class CreateScan:
         )
         scan = Scan(
             scan_id=f"scan_{uuid.uuid4().hex[:12]}",
+            project_id=validated.project_id,
             target=target_ref,
             config=validated,
         )

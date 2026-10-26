@@ -14,14 +14,15 @@ class GetScan:
     def __init__(self, repos: Repositories) -> None:
         self._repos = repos
 
-    def execute(self, scan_id: str) -> ScanView:
-        scan = self._repos.scans.get(scan_id)
+    def execute(self, scan_id: str, project_id: str | None = None) -> ScanView:
+        scan = self._repos.scans.get(scan_id, project_id=project_id)
         if scan is None:
             raise NotFoundError(f"Scan '{scan_id}' not found.")
-        findings = self._repos.findings.list_for_scan(scan_id)
+        findings = self._repos.findings.list_for_scan(scan_id, project_id=project_id)
         profile = self._repos.profiles.get(scan_id)
         return ScanView(
             scan_id=scan.scan_id,
+            project_id=scan.project_id,
             status=scan.status,
             phase=scan.status.value,
             progress=scan.progress,
@@ -30,6 +31,7 @@ class GetScan:
             security_metrics=self._security_metrics(scan_id),
             profile=profile,
         )
+
 
     @staticmethod
     def _counts(findings: list) -> ScanCounts:

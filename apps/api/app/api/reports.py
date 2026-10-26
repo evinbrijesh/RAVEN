@@ -36,6 +36,7 @@ def _report_response(result: ReportResult, fmt: str, download: bool) -> PlainTex
         "X-RAVEN-Report-Schema": result.document.schema_version,
         "X-RAVEN-Report-SHA256": result.content_sha256,
         "X-RAVEN-Report-Artifact": result.artifact_id,
+        "ETag": f'"{result.content_sha256}"',
     }
     if download:
         filename = f"raven-{result.document.scan.scan_id}-report.{_EXTENSIONS[fmt]}"
@@ -52,6 +53,7 @@ def get_report(
     scan_id: str,
     report_format: str = Query(default="json", alias="format"),
     download: bool = Query(default=False),
+    project_id: str | None = Query(default=None),
     repos: Repositories = Depends(get_repositories),
 ):
     if report_format not in _FORMATS:
@@ -65,7 +67,7 @@ def get_report(
             },
         )
     try:
-        result = generate(repos, scan_id)
+        result = generate(repos, scan_id, project_id=project_id)
     except NotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=exc.to_payload()
@@ -84,3 +86,4 @@ def get_report(
             },
         ) from exc
     return _report_response(result, report_format, download)
+

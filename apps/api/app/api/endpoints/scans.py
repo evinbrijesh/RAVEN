@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.application.approve_hardening import ApproveHardening, GetProposal
 from app.application.create_scan import CreateScan
@@ -41,22 +41,33 @@ def create_scan(
 
 
 @router.get("")
-def list_scans(repos: Repositories = Depends(get_repositories)) -> list[dict[str, str]]:
-    scans = repos.scans.list()
+def list_scans(
+    project_id: str | None = Query(default=None),
+    repos: Repositories = Depends(get_repositories),
+) -> list[dict[str, str]]:
+    scans = repos.scans.list(project_id=project_id)
     return [
-        {"scan_id": s.scan_id, "status": s.status.value, "target_id": s.target.target_id}
+        {
+            "scan_id": s.scan_id,
+            "project_id": s.project_id,
+            "status": s.status.value,
+            "target_id": s.target.target_id,
+        }
         for s in scans
     ]
 
 
 @router.get("/{scan_id}")
 def get_scan(
-    scan_id: str, repos: Repositories = Depends(get_repositories)
+    scan_id: str,
+    project_id: str | None = Query(default=None),
+    repos: Repositories = Depends(get_repositories),
 ) -> ScanView:
     try:
-        return GetScan(repos).execute(scan_id)
+        return GetScan(repos).execute(scan_id, project_id=project_id)
     except RavenError as exc:
         raise _http_error(exc) from exc
+
 
 
 @router.post("/{scan_id}/approve-hardening")

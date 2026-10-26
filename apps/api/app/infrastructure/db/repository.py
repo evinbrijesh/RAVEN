@@ -62,11 +62,13 @@ class ScanRepository:
         self._db = db
 
     def create(self, scan: Scan) -> Scan:
+        project_id = getattr(scan, "project_id", "default") or "default"
         self._db.execute(
-            "INSERT INTO scans (scan_id, status, target_id, config_json, progress,"
-            " created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO scans (scan_id, project_id, status, target_id, config_json, progress,"
+            " created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 scan.scan_id,
+                project_id,
                 scan.status.value,
                 scan.target.target_id,
                 scan.config.model_dump_json(),
@@ -78,8 +80,14 @@ class ScanRepository:
         )
         return scan
 
-    def get(self, scan_id: str) -> Scan | None:
-        row = self._db.query_one("SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
+    def get(self, scan_id: str, project_id: str | None = None) -> Scan | None:
+        if project_id is not None:
+            row = self._db.query_one(
+                "SELECT * FROM scans WHERE scan_id = ? AND project_id = ?",
+                (scan_id, project_id),
+            )
+        else:
+            row = self._db.query_one("SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
         if row is None:
             return None
         target_id = row["target_id"]
@@ -90,8 +98,11 @@ class ScanRepository:
             "mode": "evaluation_only" if is_http else "staged_target",
             "endpoint_url": target_id if is_http else None,
         }
+        keys = row.keys() if hasattr(row, "keys") else []
+        row_project_id = row["project_id"] if "project_id" in keys else "default"
         return Scan(
             scan_id=row["scan_id"],
+            project_id=row_project_id or "default",
             status=ScanStatus(row["status"]),
             target=target_ref,
             config=ScanConfig.model_validate_json(row["config_json"]),
@@ -126,9 +137,16 @@ class ScanRepository:
                 (status.value, progress, _now(), completed_at, scan_id),
             )
 
-    def list(self) -> list[Scan]:
-        rows = self._db.query_all("SELECT * FROM scans ORDER BY created_at DESC")
+    def list(self, project_id: str | None = None) -> list[Scan]:
+        if project_id is not None:
+            rows = self._db.query_all(
+                "SELECT * FROM scans WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
+            )
+        else:
+            rows = self._db.query_all("SELECT * FROM scans ORDER BY created_at DESC")
         return [self.get(row["scan_id"]) for row in rows]  # type: ignore[misc]
+
 
 
 class EventRepository:
@@ -332,15 +350,21 @@ class FindingRepository:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def save(self, finding: Finding) -> Finding:
+    def save(self, finding: Finding, project_id: str | None = None) -> Finding:
+        pid = project_id or (finding.project_id if finding.project_id != "default" else None)
+        if pid is None:
+            srow = self._db.query_one("SELECT project_id FROM scans WHERE scan_id = ?", (finding.scan_id,))
+            pid = srow["project_id"] if srow and hasattr(srow, "keys") and "project_id" in srow else "default"
+        pid = pid or "default"
         weak_json = finding.weak_point.model_dump_json() if finding.weak_point else None
         self._db.execute(
-            "INSERT OR REPLACE INTO findings (finding_id, scan_id, attack_id,"
+            "INSERT OR REPLACE INTO findings (finding_id, scan_id, project_id, attack_id,"
             " category, severity, label, confidence, summary, evidence_refs_json,"
-            " needs_review, status, weak_point_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " needs_review, status, weak_point_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 finding.finding_id,
                 finding.scan_id,
+                pid,
                 finding.attack_id,
                 finding.category.value,
                 finding.severity.value,
@@ -356,10 +380,16 @@ class FindingRepository:
         )
         return finding
 
-    def list_for_scan(self, scan_id: str) -> list[Finding]:
-        rows = self._db.query_all(
-            "SELECT * FROM findings WHERE scan_id = ? ORDER BY created_at", (scan_id,)
-        )
+    def list_for_scan(self, scan_id: str, project_id: str | None = None) -> list[Finding]:
+        if project_id is not None:
+            rows = self._db.query_all(
+                "SELECT * FROM findings WHERE scan_id = ? AND project_id = ? ORDER BY created_at",
+                (scan_id, project_id),
+            )
+        else:
+            rows = self._db.query_all(
+                "SELECT * FROM findings WHERE scan_id = ? ORDER BY created_at", (scan_id,)
+            )
         findings = []
         for row in rows:
             d = dict(row)
@@ -367,6 +397,7 @@ class FindingRepository:
                 Finding(
                     finding_id=d["finding_id"],
                     scan_id=d["scan_id"],
+                    project_id=d.get("project_id", "default") or "default",
                     attack_id=d["attack_id"],
                     category=d["category"],
                     severity=d["severity"],
@@ -382,14 +413,49 @@ class FindingRepository:
             )
         return findings
 
-    def get(self, finding_id: str) -> Finding | None:
-        row = self._db.query_one("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
+    def list_for_project(self, project_id: str) -> list[Finding]:
+        rows = self._db.query_all(
+            "SELECT * FROM findings WHERE project_id = ? ORDER BY created_at DESC",
+            (project_id,),
+        )
+        findings = []
+        for row in rows:
+            d = dict(row)
+            findings.append(
+                Finding(
+                    finding_id=d["finding_id"],
+                    scan_id=d["scan_id"],
+                    project_id=d.get("project_id", "default") or "default",
+                    attack_id=d["attack_id"],
+                    category=d["category"],
+                    severity=d["severity"],
+                    label=FindingLabel(d["label"]),
+                    confidence=d["confidence"],
+                    summary=d["summary"],
+                    evidence_refs=json.loads(d["evidence_refs_json"]),
+                    needs_review=bool(d["needs_review"]),
+                    status=d["status"],
+                    weak_point=json.loads(d["weak_point_json"]) if d.get("weak_point_json") else None,
+                    created_at=datetime.fromisoformat(d["created_at"]),
+                )
+            )
+        return findings
+
+    def get(self, finding_id: str, project_id: str | None = None) -> Finding | None:
+        if project_id is not None:
+            row = self._db.query_one(
+                "SELECT * FROM findings WHERE finding_id = ? AND project_id = ?",
+                (finding_id, project_id),
+            )
+        else:
+            row = self._db.query_one("SELECT * FROM findings WHERE finding_id = ?", (finding_id,))
         if row is None:
             return None
         d = dict(row)
         return Finding(
             finding_id=d["finding_id"],
             scan_id=d["scan_id"],
+            project_id=d.get("project_id", "default") or "default",
             attack_id=d["attack_id"],
             category=d["category"],
             severity=d["severity"],
@@ -402,6 +468,7 @@ class FindingRepository:
             weak_point=json.loads(d["weak_point_json"]) if d.get("weak_point_json") else None,
             created_at=datetime.fromisoformat(d["created_at"]),
         )
+
 
 
 class ProposalRepository:
@@ -586,11 +653,11 @@ class RegressionRepository:
         self._db = db
 
     def save_case(
-        self, target_id: str, attack_case: AttackCase, case_json: str
+        self, target_id: str, attack_case: AttackCase, case_json: str, project_id: str = "default"
     ) -> str:
         existing = self._db.query_one(
-            "SELECT regression_id FROM regression_cases WHERE target_id = ? AND attack_case_id = ? AND active = 1",
-            (target_id, attack_case.id),
+            "SELECT regression_id FROM regression_cases WHERE target_id = ? AND attack_case_id = ? AND project_id = ? AND active = 1",
+            (target_id, attack_case.id, project_id),
         )
         if existing is not None:
             self._db.execute(
@@ -601,25 +668,42 @@ class RegressionRepository:
 
         regression_id = _id("reg")
         self._db.execute(
-            "INSERT INTO regression_cases (regression_id, target_id, attack_case_id,"
-            " active, case_json, created_at) VALUES (?, ?, ?, 1, ?, ?)",
-            (regression_id, target_id, attack_case.id, case_json, _now()),
+            "INSERT INTO regression_cases (regression_id, project_id, target_id, attack_case_id,"
+            " active, case_json, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+            (regression_id, project_id, target_id, attack_case.id, case_json, _now()),
         )
         return regression_id
 
-
-    def list_active(self, target_id: str) -> list[dict[str, Any]]:
-        rows = self._db.query_all(
-            "SELECT * FROM regression_cases WHERE target_id = ? AND active = 1",
-            (target_id,),
-        )
+    def list_active(self, target_id: str, project_id: str | None = None) -> list[dict[str, Any]]:
+        if project_id is not None:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases WHERE target_id = ? AND project_id = ? AND active = 1",
+                (target_id, project_id),
+            )
+        else:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases WHERE target_id = ? AND active = 1",
+                (target_id,),
+            )
         return [dict(row) for row in rows]
 
-    def list_all(self, target_id: str | None = None) -> list[dict[str, Any]]:
-        if target_id:
+    def list_all(
+        self, target_id: str | None = None, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        if target_id and project_id:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases WHERE target_id = ? AND project_id = ? ORDER BY created_at DESC",
+                (target_id, project_id),
+            )
+        elif target_id:
             rows = self._db.query_all(
                 "SELECT * FROM regression_cases WHERE target_id = ? ORDER BY created_at DESC",
                 (target_id,),
+            )
+        elif project_id:
+            rows = self._db.query_all(
+                "SELECT * FROM regression_cases WHERE project_id = ? ORDER BY created_at DESC",
+                (project_id,),
             )
         else:
             rows = self._db.query_all(
@@ -627,15 +711,23 @@ class RegressionRepository:
             )
         return [dict(row) for row in rows]
 
-    def get(self, regression_id: str) -> dict[str, Any] | None:
-        row = self._db.query_one(
-            "SELECT * FROM regression_cases WHERE regression_id = ?",
-            (regression_id,),
-        )
+    def get(self, regression_id: str, project_id: str | None = None) -> dict[str, Any] | None:
+        if project_id is not None:
+            row = self._db.query_one(
+                "SELECT * FROM regression_cases WHERE regression_id = ? AND project_id = ?",
+                (regression_id, project_id),
+            )
+        else:
+            row = self._db.query_one(
+                "SELECT * FROM regression_cases WHERE regression_id = ?",
+                (regression_id,),
+            )
         return dict(row) if row else None
 
-    def toggle_active(self, regression_id: str, active: bool | None = None) -> dict[str, Any] | None:
-        row = self.get(regression_id)
+    def toggle_active(
+        self, regression_id: str, active: bool | None = None, project_id: str | None = None
+    ) -> dict[str, Any] | None:
+        row = self.get(regression_id, project_id=project_id)
         if not row:
             return None
         new_active = (1 if active else 0) if active is not None else (0 if row["active"] == 1 else 1)
@@ -643,7 +735,32 @@ class RegressionRepository:
             "UPDATE regression_cases SET active = ? WHERE regression_id = ?",
             (new_active, regression_id),
         )
-        return self.get(regression_id)
+        return self.get(regression_id, project_id=project_id)
+
+
+class ProjectRepository:
+    """Project / Workspace persistence for multi-tenant isolation."""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    def create(self, project_id: str, name: str, description: str = "") -> dict[str, Any]:
+        now = _now()
+        self._db.execute(
+            "INSERT OR REPLACE INTO projects (project_id, name, description, created_at)"
+            " VALUES (?, ?, ?, ?)",
+            (project_id, name, description, now),
+        )
+        return {"project_id": project_id, "name": name, "description": description, "created_at": now}
+
+    def get(self, project_id: str) -> dict[str, Any] | None:
+        row = self._db.query_one("SELECT * FROM projects WHERE project_id = ?", (project_id,))
+        return dict(row) if row else None
+
+    def list(self) -> list[dict[str, Any]]:
+        rows = self._db.query_all("SELECT * FROM projects ORDER BY created_at DESC")
+        return [dict(row) for row in rows]
+
 
 
 
@@ -733,6 +850,7 @@ class Repositories:
         self.test_runs = TestRunRepository(db)
         self.regressions = RegressionRepository(db)
         self.reports = ReportRepository(db)
+        self.projects = ProjectRepository(db)
 
     def migrate(self) -> None:
         self.db.migrate()

@@ -4,8 +4,16 @@
 -- PostgreSQL notes: TEXT -> VARCHAR/UUID, REAL -> DOUBLE PRECISION,
 -- INTEGER booleans -> BOOLEAN, AUTOINCREMENT -> GENERATED ALWAYS AS IDENTITY.
 
+CREATE TABLE IF NOT EXISTS projects (
+    project_id  TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scans (
     scan_id     TEXT PRIMARY KEY,
+    project_id  TEXT NOT NULL DEFAULT 'default',
     status      TEXT NOT NULL,
     target_id   TEXT NOT NULL,
     config_json TEXT NOT NULL,
@@ -14,6 +22,8 @@ CREATE TABLE IF NOT EXISTS scans (
     updated_at  TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_scans_project ON scans(project_id);
+
 
 CREATE TABLE IF NOT EXISTS scan_events (
     event_id     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +88,7 @@ CREATE TABLE IF NOT EXISTS verdicts (
 CREATE TABLE IF NOT EXISTS findings (
     finding_id         TEXT PRIMARY KEY,
     scan_id            TEXT NOT NULL,
+    project_id         TEXT NOT NULL DEFAULT 'default',
     attack_id          TEXT NOT NULL,
     category           TEXT NOT NULL,
     severity           TEXT NOT NULL,
@@ -91,6 +102,7 @@ CREATE TABLE IF NOT EXISTS findings (
     created_at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_findings_status_sev ON findings(status, severity);
+CREATE INDEX IF NOT EXISTS idx_findings_project ON findings(project_id);
 
 CREATE TABLE IF NOT EXISTS hardening_proposals (
     proposal_id          TEXT PRIMARY KEY,
@@ -124,6 +136,7 @@ CREATE TABLE IF NOT EXISTS approvals (
 
 CREATE TABLE IF NOT EXISTS regression_cases (
     regression_id  TEXT PRIMARY KEY,
+    project_id     TEXT NOT NULL DEFAULT 'default',
     target_id      TEXT NOT NULL,
     attack_case_id TEXT NOT NULL,
     active         INTEGER NOT NULL DEFAULT 1,
@@ -132,6 +145,7 @@ CREATE TABLE IF NOT EXISTS regression_cases (
 );
 CREATE INDEX IF NOT EXISTS idx_regression_cases
     ON regression_cases(target_id, attack_case_id, active);
+CREATE INDEX IF NOT EXISTS idx_regression_project ON regression_cases(project_id);
 -- The unique active-regression index (uq_regression_cases_active) is created
 -- defensively by sqlite.migrate() so dirty pre-existing databases do not
 -- crash startup.

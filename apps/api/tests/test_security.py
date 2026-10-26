@@ -134,6 +134,7 @@ def test_deterministic_redaction_pipeline_credentials_and_pii() -> None:
 
 def test_redact_transcript_sanitizes_messages_and_tool_args() -> None:
     import json
+
     from app.domain.entities import Transcript, TranscriptMessage
     from app.security.redaction import redact_transcript
 

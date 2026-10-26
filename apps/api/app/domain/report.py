@@ -67,6 +67,7 @@ class ReportScanConfig(BaseModel):
     budget: ReportBudget
 
 
+
 class ReportProfile(BaseModel):
     """Recon profile for the report. Never carries the raw canary token."""
 
