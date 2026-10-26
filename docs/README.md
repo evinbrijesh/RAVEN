@@ -1,49 +1,48 @@
 # RAVEN Documentation Pack
 
-RAVEN is an agentic security regression system for LLM applications. It attacks a controlled target, verifies findings, proposes hardening, and retests security and normal behavior.
+RAVEN is an autonomous security regression and remediation assurance system for LLM applications. It attacks a controlled target, verifies findings using deterministic checks and an AI judge, proposes constrained hardening diffs and runtime tool policies, and retests both security and normal user behavior.
 
 ## Documents
 
-- [PRD](./PRD.md) — product vision, MVP scope, requirements, metrics, backlog, and business model.
-- [Data Flow](./DATA_FLOW.md) — inputs, processing stages, trust boundaries, data classification, events, retention, and failure paths.
-- [Architecture](./ARCHITECTURE.md) — components, state machine, agent responsibilities, schemas, and implementation order.
-- [Threat Model](./THREAT_MODEL.md) — assets, threats, safety controls, authorization policy, and security test checklist.
-- [Claude Instructions](./CLAUDE.md) — coding-agent context, non-negotiable safety rules, project structure, and definition of done.
-- [API Contract](./API_CONTRACT.md) — endpoint behavior, request/response schemas, status conventions, and errors.
-- [Demo and Execution Plan](./DEMO_AND_EXECUTION_PLAN.md) — live demo, 24-hour schedule, team split, pitch, and Q&A.
+- [PRD](./PRD.md) — Product vision, MVP scope, requirements, metrics, backlog, and architecture boundaries.
+- [Architecture](./ARCHITECTURE.md) — System components, domain model, agent responsibilities, and remediation loop.
+- [LangGraph Orchestration](./LANGGRAPH_ORCHESTRATION.md) — Production LangGraph StateGraph, SQLite checkpointer, interrupt gates, and resume lifecycle.
+- [Data Flow](./DATA_FLOW.md) — Trust boundaries, data classification, event streaming, evidence ledger, and failure paths.
+- [Threat Model](./THREAT_MODEL.md) — Assets, threats, SSRF defenses, consent verification, and safety controls.
+- [API Contract](./API_CONTRACT.md) — REST & SSE endpoints, schemas, regression endpoints, reports, and error models.
+- [Coding Instructions (Historical)](./CLAUDE.md) — Initial coding guidelines (see canonical root `CLAUDE.md` for current rules).
+- [Architecture Blueprint](./ARCHITECTURE_SCAFFOLD.md) — Modular monolith structure, data models, and component scaffolds.
+- [Demo Script](./DEMO_SCRIPT.md) — Scripted 5-minute live pitch sequence and fallback playbook.
+- [Demo & Execution Plan](./DEMO_AND_EXECUTION_PLAN.md) — Initial 24-hour hackathon execution schedule and demo story.
+- [OPFOR Comparison](./OPFOR_COMPARISON.md) — Competitive positioning against Agent OPFOR and strategic differentiation.
+- [ADR 0001: Report Artifact Pipeline](./adr/0001-report-artifact-pipeline.md) — Immutable report architecture, canonical JSON, Markdown, and SARIF 2.1.0 projections.
+- [Post-Hackathon Strategic Roadmap](./adr/POST_HACKATHON_ROADMAP.md) — Product evolution paths: reliability, developer experience/CI, and runtime policy SDK.
+- [Prompt Specifications](./RAVEN_PROMPTS_SPEC.txt) — Core architectural prompts and system specifications.
 
-## Required build artifacts not yet included
+## Repository Implementation Status
 
-These should be created in the implementation repository:
+All core build artifacts and testing foundations have been implemented and verified:
 
-- `README.md` with setup and demo instructions.
-- `.env.example` with no real secrets.
-- `docker-compose.yml` only if external services are actually required.
-- `LICENSE` after confirming dependency licenses.
-- `SECURITY.md` with responsible-use and vulnerability-reporting guidance.
-- `CONTRIBUTING.md` if accepting external contributions.
-- `CHANGELOG.md` for release notes.
-- `tests/` with deterministic judge and state-machine tests.
-- `fixtures/` with synthetic ShopHelper data.
-- `docs/attack-library.md` with reviewed attack-case definitions.
-- `docs/model-policy.md` documenting model providers, retention, and cost limits.
+- Root `README.md` with complete setup, architecture, and live demo walkthrough.
+- Root `CLAUDE.md` reflecting monorepo structure and canonical contracts.
+- `.env.example` template for configuration with zero leaked secrets.
+- `LICENSE` (MIT) and `SECURITY.md` (vulnerability reporting and responsible AI use).
+- Automated test suites: **149 passing tests** (73 in `apps/api`, 76 in `workers/evaluator`).
+- `packages/attack-catalog/` with 12 versioned attack cases (A-01 to A-12) and 8 benign utility cases (B-01 to B-08).
+- `packages/contracts/` with JSON schemas for scans, findings, reports, and SARIF 2.1.0.
+- `fixtures/shophelper/` with simulated customer support target, synthetic customers, and canary tokens.
+- Containerization: `infra/docker-compose.yml`, `infra/Dockerfile.api`, `infra/Dockerfile.worker`, `infra/Dockerfile.web`.
 
-## Naming note
+## Target Scope & Guardrails
 
-“RAVEN” is a working name. It can be changed before implementation without affecting the architecture or requirements.
+RAVEN runs against the built-in local `ShopHelper` target as well as external HTTP endpoints configured with explicit authorization (validating URL schemes, blocking private/loopback/cloud-metadata IP ranges, and requiring `X-Raven-Scan-Consent: true`). It never executes destructive tools, never auto-deploys unreviewed changes, and adheres to strict execution budgets.
 
-## MVP boundary
+## Product Name
 
-The MVP runs only against the built-in local ShopHelper target. It does not scan arbitrary third-party endpoints, execute real side effects, or claim that a reduced attack success rate proves security.
-
-## Product name
-
-**RAVEN** means **Red-team Analysis, Verification, Enforcement, and Normal-use Assurance**.
-
-RAVEN is deliberately positioned relative to Agent OPFOR. OPFOR is an important broad adversary-emulation baseline. RAVEN does not try to win through attack-library breadth. It focuses on turning findings into constrained hardening proposals, runtime policies, and persistent regression tests while measuring legitimate utility.
+**RAVEN** stands for **Red-team Analysis, Verification, Enforcement, and Normal-use Assurance**.
 
 One-line pitch:
 
 > RAVEN attacks AI applications, proves their failures, generates enforceable guardrails, and verifies that security fixes preserve legitimate behavior.
 
-See [RAVEN vs. Agent OPFOR](./OPFOR_COMPARISON.md) for the competitive positioning and implementation priorities.
+See [RAVEN vs. Agent OPFOR](./OPFOR_COMPARISON.md) for competitive positioning and implementation priorities.

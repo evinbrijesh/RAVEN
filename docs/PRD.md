@@ -24,39 +24,35 @@ Teams are deploying support bots, RAG systems, and tool-using AI agents without 
 
 ## 3. Goals
 
-### MVP goals
+### MVP goals (Completed)
 
-1. Let a user create a scan against an authorized target.
-2. Use a local demo target as the default and safest path.
-3. Run a bounded attack suite across four categories.
-4. Use deterministic checks before model-based judging.
-5. Record complete transcripts and structured verdicts.
-6. Generate a readable hardening proposal with a diff.
-7. Re-run successful attacks after hardening.
-8. Run benign prompts to measure utility regression.
-9. Show before/after metrics and evidence.
-10. Produce a downloadable JSON or Markdown report.
+1. ✅ Let a user create a scan against an authorized target (`shophelper-local` or verified HTTP).
+2. ✅ Use a local demo target as the default and safest path.
+3. ✅ Run a bounded attack suite across four categories (12 versioned cases).
+4. ✅ Use deterministic checks before model-based judging.
+5. ✅ Record complete transcripts and structured verdicts.
+6. ✅ Generate a readable hardening proposal with prompt diff and tool policy.
+7. ✅ Re-run successful attacks after hardening.
+8. ✅ Run benign prompts (8 utility cases) to measure utility regression and over-refusal.
+9. ✅ Show before/after frontier metrics and cryptographic-grade evidence.
+10. ✅ Produce downloadable JSON, Markdown, and official OASIS SARIF 2.1.0 reports.
+11. ✅ Persistent regression suite management (`/api/regressions`).
+12. ✅ Authorized external HTTP target scanning with SSRF defenses.
 
-### Product goals after the hackathon
+### Product goals for future production
 
-- Support HTTP target adapters with explicit authorization.
-- Support CI execution and SARIF output.
-- Support repository-specific regression suites.
-- Support RAG/document injection tests.
+- GitHub Actions automated PR creation (`raven-action`).
+- Support RAG/document injection tests and vector poisoning suites.
 - Support multiple target providers and model gateways.
-- Support organization policies, scan history, and trend analysis.
-- Support human approval and versioned guardrail deployment.
+- Support organization multi-tenancy, scan history, and trend analysis.
+- Multi-turn adaptive jailbreak mutation strategies.
 
 ## 4. Non-goals for the MVP
 
-- Scanning arbitrary public websites or third-party systems.
-- Real-world destructive tool actions.
-- Fully autonomous production prompt or guardrail deployment.
+- Scanning arbitrary public websites without explicit scan consent.
+- Real-world destructive tool actions (real refunds, external API writes, deletions).
+- Fully autonomous production prompt or guardrail deployment (human approval is mandatory).
 - Claiming formal security guarantees.
-- 40–60 attack cases; the MVP uses approximately 12 carefully designed cases.
-- A multi-agent swarm.
-- Full MITRE ATLAS coverage.
-- Complete PDF, SARIF, GitHub, Slack, and SIEM integrations.
 - Arbitrary browser or web crawling.
 
 ## 5. Target users

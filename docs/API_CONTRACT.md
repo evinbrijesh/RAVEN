@@ -1,16 +1,25 @@
-# RAVEN MVP API Contract
+# RAVEN API Contract
 
 ## 1. Conventions
 
 - Base path: `/api`
 - Content type: `application/json`
-- IDs are opaque strings.
+- IDs are opaque strings (e.g. `scan_abc123`, `finding_1`).
 - Timestamps are ISO 8601 UTC.
-- Long-running scans return `202 Accepted`.
-- All responses include a stable `status` field.
+- Long-running scans return `202 Accepted` with a `scan_id`.
+- All responses include a stable `status` or structured error field.
+- Live progress is streamed via Server-Sent Events (`/events`).
 
-## 2. Create scan
+## 2. Health & Readiness
 
+`GET /health`
+`GET /ready`
+
+Returns `{"status": "ok", "version": "0.1.0"}` or readiness telemetry.
+
+## 3. Scans Management
+
+### Create Scan
 `POST /api/scans`
 
 Request:
@@ -30,7 +39,9 @@ Request:
 }
 ```
 
-Response `202`:
+*Note:* Supports `shophelper-local` and authorized HTTP targets (validated with SSRF defense and requiring header `X-Raven-Scan-Consent: true`).
+
+Response `202 Accepted`:
 
 ```json
 {
@@ -40,15 +51,12 @@ Response `202`:
 }
 ```
 
-Validation:
+### List Scans
+`GET /api/scans`
 
-- `target_id` must be `shophelper-local` for MVP.
-- Maximum 12 attack cases.
-- `max_attempts_per_attack` must be 1 or 2.
-- Mutation must be disabled if the model budget is exhausted.
+Returns a list of scans with their current status, target ID, and creation timestamp.
 
-## 3. Get scan
-
+### Get Scan
 `GET /api/scans/{scan_id}`
 
 Response:
@@ -75,11 +83,10 @@ Response:
 }
 ```
 
-## 4. Progress stream
-
+### Progress Stream
 `GET /api/scans/{scan_id}/events`
 
-Server-Sent Events example:
+Server-Sent Events (`text/event-stream`):
 
 ```text
 event: attack_started
@@ -89,36 +96,42 @@ event: verdict_created
 data: {"attack_id":"A-04","label":"confirmed_failure"}
 ```
 
-## 5. Get findings
+## 4. Findings & Evidence
 
+### List Findings
 `GET /api/scans/{scan_id}/findings`
 
-Response:
+Response contains all findings, deterministic match indicators, confidence scores, and transcript evidence references.
 
-```json
-{
-  "items": [
-    {
-      "finding_id": "finding_1",
-      "attack_id": "A-04",
-      "category": "tool_misuse",
-      "severity": "high",
-      "label": "confirmed_failure",
-      "confidence": 0.98,
-      "summary": "Refund tool was called without verified order details.",
-      "evidence_refs": ["run_1", "rule_tool_policy_1"],
-      "needs_review": false
-    }
-  ]
-}
-```
+### Get Finding Detail
+`GET /api/scans/{scan_id}/findings/{finding_id}`
 
-## 6. Approve hardening
+Returns individual finding with raw evidence transcript excerpts and rule match signals.
 
+### Promote Finding to Regression Suite
+`POST /api/scans/{scan_id}/findings/{finding_id}/promote-regression`
+
+Promotes a confirmed finding directly into the target's persistent regression test suite.
+
+## 5. Hardening & Policy Proposals
+
+### Get Proposal
+`GET /api/scans/{scan_id}/proposal`
+
+Returns the latest hardening proposal, containing:
+- `prompt_diff`: Side-by-side unified system prompt diff.
+- `policy_candidate`: Machine-readable tool authorization policy candidate.
+- `rationale`: Explanation of the proposed security boundaries.
+
+### List Policy Candidates
+`GET /api/scans/{scan_id}/policies`
+
+Returns candidate runtime guardrail specifications generated for the scan.
+
+### Approve Hardening
 `POST /api/scans/{scan_id}/approve-hardening`
 
 Request:
-
 ```json
 {
   "proposal_id": "fix_123",
@@ -127,21 +140,37 @@ Request:
 }
 ```
 
-Response:
+Loads the approved proposal into the temporary evaluation target and triggers retesting.
 
-```json
-{
-  "scan_id": "scan_123",
-  "status": "retesting",
-  "message": "Approved proposal loaded into temporary evaluation target"
-}
-```
+### Reject Hardening
+`POST /api/scans/{scan_id}/reject-hardening`
 
-The approval only changes the temporary demo target. It never deploys to an external system.
+Records the human rejection, bypasses retest, and transitions the scan to `completed_without_retest`.
 
-## 7. Report
+## 6. Persistent Regression Suite
+
+### List Regression Cases
+`GET /api/regressions?target_id=shophelper-local`
+
+Returns all saved regression test cases, active status, and target baseline.
+
+### Toggle Regression Case
+`POST /api/regressions/{regression_id}/toggle`
+
+Enables or disables an individual regression test case.
+
+### Run Regression Scan
+`POST /api/regressions/run`
+
+Triggers a regression-only evaluation scan executing solely against active saved test cases.
+
+## 7. Report Generation & Export
 
 `GET /api/scans/{scan_id}/report?format=json|markdown|sarif&download=false`
+`GET /api/scans/{scan_id}/report.sarif`
+`GET /api/scans/{scan_id}/report.md`
+`GET /api/scans/{scan_id}/report.json`
+
 
 JSON is the canonical artifact. Markdown and SARIF 2.1.0 are pure projections
 of the same report document. The full schema is

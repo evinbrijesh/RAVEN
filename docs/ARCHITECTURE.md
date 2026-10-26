@@ -25,48 +25,62 @@
 
 ### API
 
-FastAPI endpoints:
+FastAPI control plane endpoints:
 
-- `POST /api/scans`
-- `GET /api/scans/{scan_id}`
-- `GET /api/scans/{scan_id}/events`
-- `GET /api/scans/{scan_id}/findings`
-- `POST /api/scans/{scan_id}/approve-hardening`
-- `GET /api/scans/{scan_id}/report`
+- `POST /api/scans` (create and queue scan)
+- `GET /api/scans` (list scans)
+- `GET /api/scans/{scan_id}` (get scan metadata and progress)
+- `GET /api/scans/{scan_id}/events` (SSE real-time stream)
+- `GET /api/scans/{scan_id}/findings` (list findings with evidence refs)
+- `GET /api/scans/{scan_id}/findings/{finding_id}` (single finding detail)
+- `POST /api/scans/{scan_id}/findings/{finding_id}/promote-regression` (promote finding to regression suite)
+- `GET /api/scans/{scan_id}/proposal` (view latest prompt diff & policy candidate)
+- `GET /api/scans/{scan_id}/policies` (list policy candidates)
+- `POST /api/scans/{scan_id}/approve-hardening` (human approval gate)
+- `POST /api/scans/{scan_id}/reject-hardening` (human rejection gate)
+- `GET /api/scans/{scan_id}/report` (canonical JSON, Markdown, and SARIF 2.1.0 projections)
+- `GET /api/regressions` (list persistent regression suite)
+- `POST /api/regressions/{regression_id}/toggle` (toggle regression case active/inactive)
+- `POST /api/regressions/run` (execute regression-only scan)
+- `GET /health` & `GET /ready` (health and readiness probes)
 
 ### Orchestrator
 
-Implement as a typed state machine rather than an unconstrained autonomous loop:
+Implemented as a strongly-typed **LangGraph `StateGraph`** (`langgraph>=1.2.17`) backed by durable SQLite checkpointing (`SqliteCheckpointSaver`):
 
 ```text
-CREATED
-  → RECON
-  → ATTACKING
-  → JUDGING
-  → HARDENING_PROPOSED
-  → AWAITING_APPROVAL
-  → RETESTING
-  → REPORTING
-  → COMPLETED
+initialize_scan
+  → recon
+  → plan_attacks
+  → execute_security_tests
+  → judge_results
+  → resolve_verdicts
+  → generate_hardening_proposal
+  → human_approval_interrupt ◄── (LangGraph interrupt gate; awaits human review)
+  → retest_security
+  → retest_benign_utility
+  → calculate_metrics
+  → promote_regressions
+  → generate_reports
 ```
 
-Failure state: `FAILED_PARTIAL` or `FAILED_FATAL`.
+See [LANGGRAPH_ORCHESTRATION.md](./LANGGRAPH_ORCHESTRATION.md) for complete state machine, interrupt gate, and checkpointing documentation.
+
+Failure and terminal states: `completed`, `completed_without_retest`, `failed_partial`, `failed_fatal`, `inconclusive`.
 
 ### Target adapter
 
-MVP adapter:
+Implemented target adapters:
 
-- `ShopHelperLocalAdapter`
-- In-memory or local HTTP target
-- Simulated `issue_refund` tool
-- No real side effects
+- `ShopHelperLocalAdapter`: In-memory vulnerable customer support bot with fake customers and simulated `issue_refund` tool.
+- `HttpTargetAdapter`: External HTTP targets guarded by strict SSRF defense (blocking private, loopback, link-local, and cloud metadata IPs) and requiring `X-Raven-Scan-Consent: true`.
+- `PolicyGateway`: Fail-closed runtime wrapper enforcing compiled tool guardrails on simulated tools.
 
 Future adapters:
 
-- Authorized HTTP endpoint
-- Hosted model target
-- RAG document target
-- Tool-using agent target
+- Hosted model target directly via API provider.
+- RAG document and vector search targets.
+- Tool-using agent / MCP server targets.
 
 ### Judge
 
@@ -158,18 +172,21 @@ Executes fixed attack and benign suites and computes metrics.
 }
 ```
 
-## 5. Recommended implementation order
+## 5. Implementation status
+All core milestones have been fully implemented and verified via automated test suites (149 passing tests):
 
-1. Build ShopHelper and its deterministic tool policy.
-2. Build attack case schema and seed library.
-3. Build target executor.
-4. Build deterministic judge.
-5. Build scan state machine.
-6. Add structured LLM judge.
-7. Add hardening proposal and approval screen.
-8. Add regression runner.
-9. Add report and metrics.
-10. Add SSE progress and UI polish.
+1. ✅ Built ShopHelper target with simulated tools and synthetic canary injection.
+2. ✅ Created versioned attack cases (A-01 to A-12) and benign utility cases (B-01 to B-08).
+3. ✅ Built target executor and HttpTargetAdapter with SSRF defense.
+4. ✅ Built deterministic judge with exact token, PII, and tool-policy matching.
+5. ✅ Built LangGraph StateGraph scan orchestrator with SQLite checkpointer.
+6. ✅ Integrated structured LLM judge with schema validation and fallback.
+7. ✅ Implemented dual-layer VerdictResolver (with `needs_review` audit queue).
+8. ✅ Built PromptHardener (diffs) and PolicyCompiler (runtime tool guardrails).
+9. ✅ Implemented Human Approval Interrupt Gate (`POST /approve-hardening`, `POST /reject-hardening`).
+10. ✅ Built security and benign utility regression runners and frontier delta calculations.
+11. ✅ Built immutable report generator exporting canonical JSON, Markdown, and SARIF 2.1.0.
+12. ✅ Built Next.js web application with live SSE stream, evidence drawer, and diff viewer.
 
 ## 6. Production evolution
 

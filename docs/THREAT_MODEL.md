@@ -19,8 +19,8 @@ RAVEN must help an authorized owner test an LLM application without becoming a t
 
 | Threat | Risk | MVP control |
 |---|---|---|
-| Unauthorized target scanning | Abuse and legal exposure | Built-in target only; explicit authorization model |
-| SSRF through target URL | Internal network access | No arbitrary URL in MVP; future allowlist and private-IP blocking |
+| Unauthorized target scanning | Abuse and legal exposure | Built-in target default; external HTTP targets require explicit `X-Raven-Scan-Consent: true` header |
+| SSRF through target URL | Internal network access | Strict SSRF validator: scheme validation (http/https), DNS resolution, and blocking of private, loopback, link-local, multicast, and cloud metadata IPs |
 | Prompt injection from target output | Agent behavior manipulation | Treat target output as data; fixed tool schemas; no instruction execution |
 | Secret leakage to model | Confidentiality loss | Fake secrets only; redaction; reject obvious credentials |
 | Tool misuse by target | Side effects | Simulated tool; fail-closed authorization policy |
@@ -32,13 +32,12 @@ RAVEN must help an authorized owner test an LLM application without becoming a t
 | Model provider outage | Incomplete scan | Partial-result state; deterministic fallback |
 | False sense of security | Unsafe deployment | Mandatory limitations and coverage in every report |
 
-## 4. Authorization policy
+## 4. Authorization and SSRF policy
 
-MVP policy:
-
+### Built-in local target policy (`shophelper-local`)
 ```json
 {
-  "target_mode": "built_in_only",
+  "target_mode": "built_in_local",
   "network_access": false,
   "destructive_tools": false,
   "external_side_effects": false,
@@ -48,16 +47,12 @@ MVP policy:
 }
 ```
 
-Future external HTTP policy:
-
-- Require a consent header or signed authorization token.
-- Require a user confirmation step.
-- Allowlist domains.
-- Resolve DNS and reject private, loopback, link-local, and cloud metadata ranges.
-- Re-check redirects and DNS to reduce rebinding risk.
-- Block non-HTTP schemes.
-- Limit request size, rate, concurrency, and total scan time.
-- Never replay requests containing real credentials by default.
+### External HTTP target defense (`apps/api/app/security/ssrf.py`)
+- **Scheme Validation**: Strictly allows only `http` and `https`.
+- **IP & DNS Resolution Checks**: Resolves hostnames and rejects private IPv4/IPv6, loopback (127.0.0.0/8, ::1), link-local (169.254.0.0/16, fe80::/10), multicast, and reserved ranges.
+- **Cloud Metadata Shield**: Blocks cloud metadata endpoints (e.g. AWS/GCP `169.254.169.254`).
+- **Consent Header Enforcement**: Enforces `X-Raven-Scan-Consent: true` on all external targets before scanning.
+- **Budget Envelopes**: Request timeout, concurrency caps, retry limits, and total scan duration.
 
 ## 5. Prompt-injection defense
 

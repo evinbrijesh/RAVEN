@@ -29,55 +29,53 @@ RAVEN is a bounded, human-supervised security regression system for LLM applicat
 - Use feature flags for unfinished integrations.
 - Use small commits with descriptive messages.
 - Do not introduce background services unless they are needed for the demo.
+- Report generation reads persisted evidence only; never invoke targets or models.
+- JSON report is canonical; Markdown and SARIF are pure renderers.
+- Redact canary/PII/secrets at render time; preserve raw evidence internally.
+- Every report finding resolves to an evidence ref or is marked incomplete.
+- Bump the report schema version for any breaking wire change.
 
-## MVP scope
-
-Required:
-
-- Built-in ShopHelper target.
-- Four attack categories.
-- Approximately 12 attack cases.
-- Deterministic canary, secret, PII, and tool-policy checks.
-- Structured LLM judge with bounded calls.
-- One mutation per failed case at most.
-- Hardening proposal with diff.
-- Approval step.
-- Before/after retest.
-- Benign utility suite.
-- Report page and JSON/Markdown export.
-
-Defer:
-
-- Arbitrary external HTTP targets.
-- SARIF.
-- GitHub Actions.
-- Full MITRE ATLAS taxonomy.
-- Redis/Postgres unless SQLite is insufficient.
-- Multi-agent swarm behavior.
-- Automatic production changes.
-
-## Suggested directory structure
+## Monorepo layout
 
 ```text
-app/
-  api/
-  core/
-  models/
-  orchestrator/
-  targets/
-  attacks/
-  judges/
-  hardening/
-  reporting/
-  security/
-web/
-fixtures/
-  shophelper/
-  benign-prompts/
-  attack-cases/
-tests/
-docs/
+apps/web/        Next.js frontend (scan setup, live progress, findings, report)
+  components/report/      Report UI primitives (summary, delta, findings, evidence)
+  app/scans/[id]/report/  Printable full report route
+apps/api/        FastAPI control plane (scans, findings, policies, reports, SSE)
+  app/application/report/ Report collector, assembler, redaction, renderers
+  app/domain/report.py    Canonical report Pydantic models
+workers/evaluator/  Evaluation worker (state machine, targets, judges, hardening, regression)
+packages/contracts/     Shared JSON/OpenAPI schemas (report.schema.json is v1.0)
+packages/attack-catalog/ Versioned attack and benign cases
+packages/ui/            Optional shared UI primitives
+fixtures/        ShopHelper fixtures and demo scan config
+infra/           Docker Compose, Dockerfiles, nginx
+docs/            PRD, architecture, threat model, API contract, scaffold blueprint
 ```
+
+## Implemented Scope
+
+Implemented & Verified:
+
+- Built-in ShopHelper target with simulated tools and canary injection.
+- Authorized external HTTP targets with strict SSRF filtering and scan consent verification.
+- Four attack categories with 12 approved attack cases mapped to OWASP and MITRE ATLAS.
+- Deterministic canary, secret, PII, and tool-policy checks.
+- Structured LLM judge with bounded calls and fallback to deterministic verdicts.
+- Dual-layer VerdictResolver (conflicts marked `needs_review`).
+- One mutation per failed case at most.
+- Hardening proposal generator producing prompt diffs and machine-readable runtime tool policies.
+- Human-in-the-loop approval and rejection gates.
+- Before/after retesting against security attacks.
+- Benign utility suite (8 cases) measuring over-refusal and task preservation.
+- Full reporting engine exporting canonical JSON, Markdown, and official OASIS SARIF 2.1.0 logs.
+- Persistent regression suite management and regression-only test execution.
+
+Deferred to Future Production:
+
+- GitHub Actions automated PR creation.
+- Multi-tenant enterprise SSO and organization RBAC.
+- Multi-agent autonomous swarm behaviors.
 
 ## State and status conventions
 
