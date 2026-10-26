@@ -1,0 +1,48 @@
+name: RAVEN Security Scan
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  security-scan:
+    name: Autonomous Adversarial Evaluation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv package manager
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --all-packages
+
+      - name: Run RAVEN Security Scan
+        id: raven
+        uses: ./.github/actions/raven-security-scan
+        with:
+          target: shop_helper_local
+          fail_on: high
+          sarif_file: raven-results.sarif
+
+      - name: Upload SARIF report to GitHub Advanced Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: raven-results.sarif
+          category: raven-adversarial-eval

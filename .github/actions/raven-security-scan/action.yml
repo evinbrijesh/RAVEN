@@ -1,0 +1,84 @@
+name: "RAVEN AI Security Scan"
+description: "Autonomous Security Regression & Remediation Assurance Gate for LLM Applications"
+author: "RAVEN Security Team"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  config:
+    description: "Path to raven.yaml configuration file (auto-detects raven.yaml if omitted)"
+    required: false
+    default: "raven.yaml"
+  target:
+    description: "Target adapter or ID to evaluate (e.g. shophelper-local)"
+    required: false
+    default: ""
+  target_url:
+    description: "Direct HTTP endpoint URL for external target application"
+    required: false
+    default: ""
+  fail_on:
+    description: "Minimum severity threshold to trigger failure exit code (critical, high, medium, low, none)"
+    required: false
+    default: "high"
+  sarif_file:
+    description: "Output file path for OASIS SARIF 2.1.0 security report"
+    required: false
+    default: "raven-results.sarif"
+  summary_file:
+    description: "Output file path for GitHub PR markdown summary"
+    required: false
+    default: "raven-summary.md"
+  categories:
+    description: "Space-separated list of attack categories to execute"
+    required: false
+    default: ""
+  max_cases:
+    description: "Maximum attack cases to run"
+    required: false
+    default: ""
+  regression_only:
+    description: "Execute only active promoted regression cases"
+    required: false
+    default: "false"
+
+outputs:
+  sarif_path:
+    description: "Path to the exported SARIF 2.1.0 log"
+    value: ${{ steps.scan.outputs.sarif_path }}
+  findings_count:
+    description: "Number of confirmed/likely security failures detected"
+    value: ${{ steps.scan.outputs.findings_count }}
+  breached_threshold:
+    description: "Whether the configured severity threshold was breached (true/false)"
+    value: ${{ steps.scan.outputs.breached_threshold }}
+  asr_before:
+    description: "Attack Success Rate before remediation"
+    value: ${{ steps.scan.outputs.asr_before }}
+  asr_after:
+    description: "Attack Success Rate after proposed remediation"
+    value: ${{ steps.scan.outputs.asr_after }}
+  benign_pass_rate:
+    description: "Benign utility pass rate (proving 0% over-refusal)"
+    value: ${{ steps.scan.outputs.benign_pass_rate }}
+  exit_code:
+    description: "Process exit code (0 for clean, 1 for security failure)"
+    value: ${{ steps.scan.outputs.exit_code }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: scan
+      shell: bash
+      run: |
+        python3 "${{ github.action_path }}/entrypoint.py" \
+          ${{ inputs.config != '' && format('--config "{0}"', inputs.config) || '' }} \
+          ${{ inputs.target != '' && format('--target "{0}"', inputs.target) || '' }} \
+          ${{ inputs.target_url != '' && format('--target-url "{0}"', inputs.target_url) || '' }} \
+          ${{ inputs.fail_on != '' && format('--fail-on "{0}"', inputs.fail_on) || '' }} \
+          ${{ inputs.sarif_file != '' && format('--sarif-file "{0}"', inputs.sarif_file) || '' }} \
+          ${{ inputs.summary_file != '' && format('--summary-file "{0}"', inputs.summary_file) || '' }} \
+          ${{ inputs.categories != '' && format('--categories {0}', inputs.categories) || '' }} \
+          ${{ inputs.max_cases != '' && format('--max-cases {0}', inputs.max_cases) || '' }} \
+          ${{ inputs.regression_only == 'true' && '--regression-only' || '' }}
