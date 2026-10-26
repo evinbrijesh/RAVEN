@@ -9,8 +9,11 @@ a recorded approval.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any
+
+logger = logging.getLogger("raven.engine")
 
 from app.domain.entities import (
     Finding,
@@ -89,17 +92,35 @@ class ScanEngine:
         if scan is None:
             raise RavenError(f"Scan '{scan_id}' not found.")
 
+        if _terminal(scan.status):
+            logger.info("Scan %s is already in terminal status %s; skipping run.", scan_id, scan.status.value)
+            return
+
+        if scan.status == ScanStatus.AWAITING_APPROVAL:
+            logger.info("Scan %s is currently awaiting approval; skipping run.", scan_id)
+            return
+
         if self._use_graph and self._graph is not None:
             from evaluator.orchestration.state import create_initial_state
 
             config = {"configurable": {"thread_id": scan_id}}
-            initial_state = create_initial_state(
-                scan_id=scan_id,
-                target_id=scan.target.target_id,
-                scan_config=scan.config.model_dump(),
-            )
             try:
-                await self._graph.ainvoke(initial_state, config=config)
+                state_snapshot = await self._graph.aget_state(config)
+                if state_snapshot and state_snapshot.values:
+                    if state_snapshot.next and "human_approval_interrupt" in state_snapshot.next:
+                        logger.info("Scan %s is paused at human_approval_interrupt; skipping run.", scan_id)
+                        return
+                    if not state_snapshot.next:
+                        logger.info("Scan %s graph is already complete; skipping run.", scan_id)
+                        return
+                    await self._graph.ainvoke(None, config=config)
+                else:
+                    initial_state = create_initial_state(
+                        scan_id=scan_id,
+                        target_id=scan.target.target_id,
+                        scan_config=scan.config.model_dump(),
+                    )
+                    await self._graph.ainvoke(initial_state, config=config)
             except RavenError:
                 await self._fail(scan_id, ScanStatus.FAILED_FATAL)
                 raise

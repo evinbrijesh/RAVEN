@@ -95,6 +95,8 @@ class Database:
             ("findings", "weak_point_json", "TEXT"),
             ("approvals", "proposal_hash", "TEXT NOT NULL DEFAULT ''"),
             ("approvals", "decision", "TEXT NOT NULL DEFAULT 'approved'"),
+            ("attack_runs", "artifact_sha256", "TEXT NOT NULL DEFAULT ''"),
+            ("transcripts", "content_sha256", "TEXT NOT NULL DEFAULT ''"),
         ]
         for table, column, ddl_type in additions:
             if table not in existing_tables:

@@ -38,22 +38,24 @@ CREATE TABLE IF NOT EXISTS attack_cases (
 );
 
 CREATE TABLE IF NOT EXISTS attack_runs (
-    run_id         TEXT PRIMARY KEY,
-    scan_id        TEXT NOT NULL,
-    attack_case_id TEXT NOT NULL,
-    attempt        INTEGER NOT NULL,
-    phase          TEXT NOT NULL,
-    started_at     TEXT NOT NULL,
-    finished_at    TEXT,
-    status         TEXT NOT NULL,
-    transcript_json TEXT
+    run_id          TEXT PRIMARY KEY,
+    scan_id         TEXT NOT NULL,
+    attack_case_id  TEXT NOT NULL,
+    attempt         INTEGER NOT NULL,
+    phase           TEXT NOT NULL,
+    started_at      TEXT NOT NULL,
+    finished_at     TEXT,
+    status          TEXT NOT NULL,
+    transcript_json TEXT,
+    artifact_sha256 TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_attack_runs_scan ON attack_runs(scan_id, attack_case_id);
 
 CREATE TABLE IF NOT EXISTS transcripts (
-    transcript_id TEXT PRIMARY KEY,
-    run_id        TEXT NOT NULL,
-    messages_json TEXT NOT NULL
+    transcript_id  TEXT PRIMARY KEY,
+    run_id         TEXT NOT NULL,
+    messages_json  TEXT NOT NULL,
+    content_sha256 TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS verdicts (

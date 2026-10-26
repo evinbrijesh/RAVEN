@@ -289,23 +289,11 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
                 baseline.metrics = {**baseline.metrics, "phase": "before"}
                 engine._persist_test_run(baseline)
 
-        # Idempotency check: if attack runs for BEFORE phase already exist, reuse them
+        # Per-case idempotency check: reuse any attack runs already completed for this scan in BEFORE phase
         existing_runs = engine._repos.runs.list_runs(scan_id)
-        before_runs = [r for r in existing_runs if r.get("phase") == RunPhase.BEFORE.value]
-        if before_runs and len(before_runs) >= len(state.get("selected_attack_case_ids", [])):
-            attack_results = [
-                {
-                    "run_id": r["run_id"],
-                    "attack_id": r["attack_case_id"],
-                    "attempt": r["attempt"],
-                    "status": r["status"],
-                }
-                for r in before_runs
-            ]
-            return {
-                "attack_results": attack_results,
-                "phase": "security_tests_executed",
-            }
+        before_runs_by_case = {
+            r["attack_case_id"]: r for r in existing_runs if r.get("phase") == RunPhase.BEFORE.value
+        }
 
         cases = engine._select_cases(scan)
         selected_set = set(state.get("selected_attack_case_ids", []))
@@ -322,6 +310,16 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
 
         attack_results = []
         for case in cases_to_run:
+            if case.id in before_runs_by_case:
+                r = before_runs_by_case[case.id]
+                attack_results.append({
+                    "run_id": r["run_id"],
+                    "attack_id": r["attack_case_id"],
+                    "attempt": r["attempt"],
+                    "status": r["status"],
+                })
+                continue
+
             engine._emit(scan_id, EventKind.ATTACK_STARTED, {"attack_id": case.id, "graph_node": "execute_security_tests"})
             outcome = await runner._run_case(target, case, scan_id, RunPhase.BEFORE)
             engine._emit(scan_id, EventKind.ATTACK_FINISHED, {"attack_id": case.id, "graph_node": "execute_security_tests"})

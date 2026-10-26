@@ -56,11 +56,15 @@ class HttpTargetAdapter(TargetAdapter):
         self._temporary_policy: PolicyCandidate | None = None
 
     async def profile(self) -> TargetProfile:
+        import hashlib
         return TargetProfile(
-            supported_task_types=["external_chat"],
+            target_id=self.endpoint_url,
+            version="live",
+            system_prompt_hash=hashlib.sha256(self.endpoint_url.encode()).hexdigest()[:16],
             tools=[],
-            canary_token=None,
+            canary_token="",
             refusal_behavior="http_endpoint",
+            notes=["External HTTP target; dynamic evaluation."],
         )
 
     async def invoke(self, request: TargetRequest) -> TargetResponse:

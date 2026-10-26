@@ -2,10 +2,11 @@
 name = "raven-evaluator"
 version = "0.1.0"
 description = "RAVEN evaluation worker: state machine, targets, judges, hardening, regression"
-requires-python = ">=3.12"
-dependencies = ["raven-api"]
+dependencies = [
+    "raven-api",
+    "pyyaml>=6.0",
+]
 
-[project.scripts]
 raven-test = "evaluator.cli:main"
 
 [tool.uv.sources]

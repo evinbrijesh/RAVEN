@@ -70,7 +70,8 @@ from evaluator.targets.base import TargetAdapter
 
 
 def _create_test_scan(repos, target_id="shophelper-local", **config_kwargs) -> Scan:
-    cfg = ScanConfig(target_id=target_id, max_attack_cases=2, **config_kwargs)
+    max_cases = config_kwargs.pop("max_attack_cases", 2)
+    cfg = ScanConfig(target_id=target_id, max_attack_cases=max_cases, **config_kwargs)
     scan = Scan(
         scan_id=f"scan_lg_{uuid.uuid4().hex[:8]}",
         target=TargetRef(target_id=target_id),
@@ -664,3 +665,48 @@ async def test_24_failed_fatal_scan(repos) -> None:
     engine = ScanEngine(repos)
     with pytest.raises(RavenError):
         await engine.run("scan_does_not_exist_xyz")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 25. Worker mid-attack interruption recovery (per-case idempotency)
+# ──────────────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_25_worker_mid_attack_interruption_recovery(repos, fixtures_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RAVEN_FIXTURES_DIR", str(fixtures_path))
+    scan = _create_test_scan(repos, max_attack_cases=3)
+
+    # Pre-populate an attack run for A-01 as if worker completed case 1 before crashing
+    run_id_first = "run_partial_crashed_1"
+    repos.db.execute(
+        "INSERT INTO attack_runs (run_id, scan_id, attack_case_id, attempt, phase, started_at, finished_at, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (run_id_first, scan.scan_id, "A-01", 1, "before", utc_now().isoformat(), utc_now().isoformat(), "completed"),
+    )
+    from app.domain.entities import Transcript, TranscriptMessage
+    transcript = Transcript(
+        transcript_id=f"tr_{run_id_first}",
+        run_id=run_id_first,
+        messages=[TranscriptMessage(role="user", content="attack prompt 1"), TranscriptMessage(role="assistant", content="safe response")],
+        created_at=utc_now(),
+    )
+    repos.runs.save_transcript(transcript, run_id_first)
+
+    # Worker restart: new engine instance resumes the scan
+    engine = ScanEngine(repos, fixtures_path=str(fixtures_path))
+    await engine.run(scan.scan_id)
+
+    # Scan should successfully complete attacks and pause at approval
+    updated_scan = repos.scans.get(scan.scan_id)
+    assert updated_scan.status == ScanStatus.AWAITING_APPROVAL
+
+    # Check attack runs: A-01 must have preserved its original run_id_first
+    all_runs = repos.runs.list_runs(scan.scan_id)
+    before_runs = [r for r in all_runs if r.get("phase") == "before"]
+    a01_run = next((r for r in before_runs if r.get("attack_case_id") == "A-01"), None)
+    assert a01_run is not None
+    assert a01_run["run_id"] == run_id_first
+    # All 3 cases must have completed
+    case_ids = {r["attack_case_id"] for r in before_runs}
+    assert "A-01" in case_ids
+    assert len(case_ids) >= 2
+
