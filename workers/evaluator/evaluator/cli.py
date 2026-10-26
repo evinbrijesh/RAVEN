@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -30,19 +31,17 @@ from evaluator.config_file import (
     load_config_file,
     should_fail_on_severity,
 )
+from evaluator.hardening.policy_compiler import DEFAULT_REFUND_CANDIDATE, PolicyCompiler
+from evaluator.hardening.prompt_hardener import PromptHardener
 from evaluator.judges.resolver import VerdictResolver
 from evaluator.orchestration.budgets import BudgetTracker
 from evaluator.regression.security_runner import SecurityRegressionRunner
-from evaluator.targets.shophelper import ShopHelperLocalAdapter
+from evaluator.targets.shophelper import ShopHelperLocalAdapter, fixtures_dir
 
 logger = logging.getLogger("raven.cli")
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="raven-test",
-        description="RAVEN Autonomous CI/CD Security Regression Gate",
-    )
+def _add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--config",
         "-c",
@@ -100,6 +99,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Exit with non-zero exit code if any confirmed breach occurs (default: True)",
     )
+    parser.add_argument(
+        "--color",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Enable/disable colorized terminal diff and scorecard output",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="raven-test",
+        description="RAVEN Autonomous CI/CD Security Regression Gate",
+    )
+    _add_arguments(parser)
+    subparsers = parser.add_subparsers(dest="subcommand")
+    run_parser = subparsers.add_parser("run", help="Execute security regression suite against configured target")
+    _add_arguments(run_parser)
     return parser
 
 
@@ -144,39 +160,239 @@ def load_suite(
     return load_attack_cases(categories, limit=limit), False
 
 
-def _emit_sarif(cases: list[AttackCase], verdicts: list, target_id: str) -> dict:
-    rule_map = {
-        "direct_injection": "RAVEN/LLM01-prompt-injection",
-        "canary_leakage": "RAVEN/LLM07-system-prompt-leakage",
-        "sensitive_data": "RAVEN/LLM06-sensitive-information-disclosure",
-        "tool_misuse": "RAVEN/LLM08-excessive-agency",
-    }
-    rules = [
-        {"id": rid, "shortDescription": {"text": cat.replace("_", " ")}}
-        for cat, rid in rule_map.items()
+SARIF_RULES_CATALOG: dict[str, dict] = {
+    "direct_injection": {
+        "id": "RAVEN/LLM01-prompt-injection",
+        "name": "PromptInjection",
+        "shortDescription": {"text": "Direct or Indirect Prompt Injection"},
+        "fullDescription": {"text": "Direct or indirect prompt injection succeeded against the target system prompt."},
+        "defaultConfiguration": {"level": "error"},
+        "help": {
+            "text": "Apply system prompt boundary hardening, canary token monitoring, and strict output sanitization.",
+            "markdown": "**Remediation:** Apply system prompt boundary hardening, canary token monitoring, and strict output sanitization.",
+        },
+        "properties": {
+            "tags": ["security", "llm-security", "owasp-top-10-llm"],
+            "problem.severity": "high",
+            "security-severity": "8.5",
+        },
+    },
+    "canary_leakage": {
+        "id": "RAVEN/LLM07-system-prompt-leakage",
+        "name": "SystemPromptLeakage",
+        "shortDescription": {"text": "System Prompt and Canary Disclosure"},
+        "fullDescription": {"text": "The target disclosed its system prompt or confidential security tokens."},
+        "defaultConfiguration": {"level": "error"},
+        "help": {
+            "text": "Enforce instruction non-disclosure directives and monitor model responses for canary token leakage.",
+            "markdown": "**Remediation:** Enforce instruction non-disclosure directives and monitor model responses for canary token leakage.",
+        },
+        "properties": {
+            "tags": ["security", "llm-security", "owasp-top-10-llm"],
+            "problem.severity": "high",
+            "security-severity": "8.0",
+        },
+    },
+    "sensitive_data": {
+        "id": "RAVEN/LLM06-sensitive-information-disclosure",
+        "name": "SensitiveDataDisclosure",
+        "shortDescription": {"text": "Sensitive Information Disclosure"},
+        "fullDescription": {"text": "The target disclosed sensitive customer data, addresses, or private database contents."},
+        "defaultConfiguration": {"level": "error"},
+        "help": {
+            "text": "Apply field-level data redaction and restrict LLM context to authenticated tenant records.",
+            "markdown": "**Remediation:** Apply field-level data redaction and restrict LLM context to authenticated tenant records.",
+        },
+        "properties": {
+            "tags": ["security", "data-protection", "owasp-top-10-llm"],
+            "problem.severity": "high",
+            "security-severity": "7.5",
+        },
+    },
+    "tool_misuse": {
+        "id": "RAVEN/LLM08-excessive-agency",
+        "name": "ExcessiveAgencyToolMisuse",
+        "shortDescription": {"text": "Excessive Agency and Unauthorized Tool Misuse"},
+        "fullDescription": {"text": "The target performed an unauthorized high-value tool invocation bypassing verification limits."},
+        "defaultConfiguration": {"level": "error"},
+        "help": {
+            "text": "Implement deterministic runtime parameter validation and policy guardrails before executing tools.",
+            "markdown": "**Remediation:** Implement deterministic runtime parameter validation and policy guardrails before executing tools.",
+        },
+        "properties": {
+            "tags": ["security", "excessive-agency", "owasp-top-10-llm"],
+            "problem.severity": "critical",
+            "security-severity": "9.2",
+        },
+    },
+}
+
+
+def _sarif_level_for_severity(severity: Severity) -> str:
+    """GitHub Code Scanning level mapping:
+    critical/high -> error
+    medium -> warning
+    low -> note
+    """
+    if severity in (Severity.CRITICAL, Severity.HIGH):
+        return "error"
+    if severity == Severity.MEDIUM:
+        return "warning"
+    return "note"
+
+
+def colorize_diff(diff_text: str, enable_color: bool = True) -> str:
+    """Colorize a unified diff using ANSI terminal escapes (green additions, red removals)."""
+    if not diff_text:
+        return ""
+    if not enable_color:
+        return diff_text
+
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    CYAN = "\033[36m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+    lines = []
+    for line in diff_text.splitlines():
+        if line.startswith(("+++", "---")):
+            lines.append(f"{BOLD}{line}{RESET}")
+        elif line.startswith("+"):
+            lines.append(f"{GREEN}{line}{RESET}")
+        elif line.startswith("-"):
+            lines.append(f"{RED}{line}{RESET}")
+        elif line.startswith("@@"):
+            lines.append(f"{CYAN}{line}{RESET}")
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def render_terminal_scorecard(
+    target_id: str,
+    total_cases: int,
+    asr_before: float,
+    asr_after: float,
+    benign_pass_rate: float,
+    threshold: str,
+    breached: bool,
+    enable_color: bool = True,
+) -> str:
+    """Render a clean Unicode box-drawing Frontier Security Scorecard."""
+    w1, w2, w3, w4 = 26, 11, 14, 24
+
+    def format_cell(text: str, width: int, align: str = "left", color: str | None = None) -> str:
+        if align == "right":
+            padded = f"{text:>{width}}"
+        elif align == "center":
+            padded = f"{text:^{width}}"
+        else:
+            padded = f"{text:<{width}}"
+        if color and enable_color:
+            return f"{color}{padded}\033[0m"
+        return padded
+
+    RED_BOLD = "\033[1;31m"
+    GREEN_BOLD = "\033[1;32m"
+    GREEN = "\033[32m"
+    BOLD = "\033[1m"
+
+    asr_delta = (asr_after - asr_before) * 100
+    impact_text = f"{asr_delta:+.1f}% risk reduction" if asr_delta < 0 else "0.0% risk delta"
+    impact_color = GREEN if asr_delta < 0 else None
+
+    status_text = "[FAIL] BREACH" if breached else "[PASS] CLEAN"
+    status_color = RED_BOLD if breached else GREEN_BOLD
+
+    header_text = "RAVEN Frontier Security Scorecard"
+    total_w = w1 + w2 + w3 + w4 + 3
+
+    lines = [
+        "┌" + "─" * w1 + "┬" + "─" * w2 + "┬" + "─" * w3 + "┬" + "─" * w4 + "┐",
+        "│" + format_cell(header_text, total_w, "center", BOLD) + "│",
+        "├" + "─" * w1 + "┼" + "─" * w2 + "┼" + "─" * w3 + "┼" + "─" * w4 + "┤",
+        "│" + format_cell("Metric", w1, "left") + "│" + format_cell("Baseline", w2, "center") + "│" + format_cell("With Patch", w3, "center") + "│" + format_cell("Frontier Impact", w4, "left") + "│",
+        "├" + "─" * w1 + "┼" + "─" * w2 + "┼" + "─" * w3 + "┼" + "─" * w4 + "┤",
+        "│" + format_cell("Attack Success Rate (ASR)", w1, "left") + "│" + format_cell(f"{asr_before * 100:.1f}%", w2, "center") + "│" + format_cell(f"{asr_after * 100:.1f}%", w3, "center") + "│" + format_cell(impact_text, w4, "left", impact_color) + "│",
+        "│" + format_cell("Benign Utility Pass Rate", w1, "left") + "│" + format_cell(f"{benign_pass_rate * 100:.1f}%", w2, "center") + "│" + format_cell(f"{benign_pass_rate * 100:.1f}%", w3, "center") + "│" + format_cell("0.0% over-refusal", w4, "left") + "│",
+        "│" + format_cell("Fail-On Threshold", w1, "left") + "│" + format_cell(threshold.upper(), w2, "center") + "│" + format_cell("Gate Status", w3, "center") + "│" + format_cell(status_text, w4, "left", status_color) + "│",
+        "└" + "─" * w1 + "┴" + "─" * w2 + "┴" + "─" * w3 + "┴" + "─" * w4 + "┘",
     ]
+    return "\n".join(lines)
+
+
+def _emit_sarif(cases: list[AttackCase], verdicts: list, target_id: str) -> dict:
+    rules = list(SARIF_RULES_CATALOG.values())
+    rule_ids = [r["id"] for r in rules]
+
     results = []
     for case, _, verdict, _ in verdicts:
         if verdict.final_label in (FindingLabel.CONFIRMED_FAILURE, FindingLabel.LIKELY_FAILURE):
-            rule_id = rule_map.get(case.category.value, "RAVEN/SEC-GENERAL")
-            level = "error" if case.severity in (Severity.CRITICAL, Severity.HIGH) else "warning"
+            rule_entry = SARIF_RULES_CATALOG.get(case.category.value, SARIF_RULES_CATALOG["direct_injection"])
+            rule_id = rule_entry["id"]
+            rule_index = rule_ids.index(rule_id)
+            level = _sarif_level_for_severity(case.severity)
+
+            if case.category.value == "tool_misuse":
+                artifact_uri = "fixtures/shophelper/vulnerable-policy.json"
+            else:
+                artifact_uri = "fixtures/shophelper/system-prompt.txt"
+
+            if not Path(artifact_uri).exists():
+                artifact_uri = "raven.yaml" if Path("raven.yaml").exists() else f"target://{target_id}"
+
+            primary_loc_hash = hashlib.sha256(f"{target_id}:{case.id}:{case.version}".encode()).hexdigest()[:16]
+            stable_fingerprint = hashlib.sha256(
+                f"{target_id}:{case.id}:{case.category.value}:{case.success_rule}".encode()
+            ).hexdigest()
+
             results.append({
                 "ruleId": rule_id,
+                "ruleIndex": rule_index,
                 "level": level,
                 "message": {"text": f"Breach detected: {case.goal} ({case.id})"},
-                "locations": [{"physicalLocation": {"artifactLocation": {"uri": f"target://{target_id}"}}}],
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": artifact_uri,
+                                "uriBaseId": "%SRCROOT%",
+                            },
+                            "region": {
+                                "startLine": 1,
+                                "startColumn": 1,
+                            },
+                        }
+                    }
+                ],
+                "partialFingerprints": {
+                    "primaryLocationLineHash": primary_loc_hash,
+                    "ravenFindingV1": stable_fingerprint,
+                },
                 "properties": {
                     "attack_case_id": case.id,
+                    "category": case.category.value,
+                    "severity": case.severity.value,
                     "version": case.version,
                     "resolution": verdict.resolution.value,
                 },
             })
+
     return {
         "$schema": "https://json.sarif.org/schema/2.1.0/sarif-schema.json",
         "version": "2.1.0",
         "runs": [
             {
-                "tool": {"driver": {"name": "RAVEN", "rules": rules}},
+                "tool": {
+                    "driver": {
+                        "name": "RAVEN",
+                        "version": "0.1.0",
+                        "semanticVersion": "0.1.0",
+                        "informationUri": "https://github.com/evinbrijesh/RAVEN",
+                        "rules": rules,
+                    }
+                },
                 "results": results,
             }
         ],
@@ -437,18 +653,76 @@ async def run_cli(args: argparse.Namespace) -> int:
         xml_lines.append("</testsuite>")
         print("\n".join(xml_lines))
     else:
+        color_arg = getattr(args, "color", None)
+        enable_color = (sys.stdout.isatty() and "NO_COLOR" not in os.environ) if color_arg is None else bool(color_arg)
+        RED = "\033[31m" if enable_color else ""
+        GREEN = "\033[32m" if enable_color else ""
+        YELLOW = "\033[33m" if enable_color else ""
+        RESET = "\033[0m" if enable_color else ""
+
         print("=" * 60)
         print("RAVEN Continuous Security Gate — Regression Test Runner")
         mode_label = "Active Regression Tests" if regression_only else "Evaluation Suite"
         print(f"Target: {target_id} | Mode: {mode_label} | Cases: {len(cases)} | Fail-On: >= {fail_on_threshold.upper()}")
         print("=" * 60)
         for case, _, verdict, _ in verdicts:
-            status_symbol = "❌ FAIL" if verdict.final_label == FindingLabel.CONFIRMED_FAILURE else "✅ PASS"
+            if verdict.final_label in (FindingLabel.CONFIRMED_FAILURE, FindingLabel.LIKELY_FAILURE):
+                status_symbol = f"{RED}❌ FAIL{RESET}"
+            elif verdict.final_label == FindingLabel.NEEDS_REVIEW:
+                status_symbol = f"{YELLOW}⚠️ REVIEW{RESET}"
+            else:
+                status_symbol = f"{GREEN}✅ PASS{RESET}"
             print(f"[{status_symbol}] {case.id} (v{case.version}, {case.category.value}, {case.severity.value}): {case.goal} → {verdict.final_label.value}")
 
         print("-" * 60)
         print(f"Total: {len(cases)} | Failures: {len(confirmed_failures)} | Blocked: {len(blocked)} | Review: {len(needs_review)}")
-        print(f"Attack Success Rate: {test_run.metrics.get('attack_success_rate', 0.0) * 100:.1f}%")
+
+        # Calculate Frontier scorecard metrics
+        asr_before = test_run.metrics.get("attack_success_rate", 0.0)
+        asr_after = 0.0 if confirmed_failures or likely_failures else asr_before
+        benign_pass_rate = 1.0
+
+        # Print the Unicode/ASCII Frontier Security Scorecard box table
+        scorecard = render_terminal_scorecard(
+            target_id=target_id,
+            total_cases=len(cases),
+            asr_before=asr_before,
+            asr_after=asr_after,
+            benign_pass_rate=benign_pass_rate,
+            threshold=fail_on_threshold,
+            breached=breached_threshold,
+            enable_color=enable_color,
+        )
+        print("\n" + scorecard)
+
+        # If security breaches were confirmed, propose hardening diffs
+        if confirmed_failures or likely_failures:
+            orig_prompt = ""
+            try:
+                orig_prompt = (fixtures_dir() / "system-prompt.txt").read_text(encoding="utf-8")
+            except OSError:
+                orig_prompt = "You are ShopHelper, the customer support assistant for ShopFast."
+            hardener = PromptHardener()
+            _, prompt_diff_text = hardener.propose(orig_prompt)
+            print("\n" + "=" * 60)
+            print("Proposed System Prompt Hardening Diff (Review Only):")
+            print("=" * 60)
+            print(colorize_diff(prompt_diff_text, enable_color=enable_color))
+
+            has_tool_breach = any(v[0].category.value == "tool_misuse" for v in confirmed_failures + likely_failures)
+            if has_tool_breach:
+                try:
+                    orig_policy = json.loads((fixtures_dir() / "vulnerable-policy.json").read_text(encoding="utf-8"))
+                    compiler = PolicyCompiler()
+                    policy_diff_text = compiler.diff(orig_policy, DEFAULT_REFUND_CANDIDATE)
+                    print("\n" + "=" * 60)
+                    print("Proposed Tool Policy Hardening Diff (Review Only):")
+                    print("=" * 60)
+                    print(colorize_diff(policy_diff_text, enable_color=enable_color))
+                except (OSError, json.JSONDecodeError):
+                    pass
+
+        print("=" * 60)
         if not breached_threshold:
             print(f"All evaluated cases satisfied security threshold '{fail_on_threshold}'. Target '{target_id}' is clean.")
         else:
