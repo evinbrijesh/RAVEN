@@ -67,3 +67,64 @@ class SqliteJobQueue:
             " WHERE job_id = ?",
             (error, _now(), job_id),
         )
+
+    def cleanup_stale_jobs(
+        self, stale_timeout_seconds: float = 300.0, max_attempts: int = 3
+    ) -> list[dict[str, Any]]:
+        """Identify and reclaim or fail jobs stuck in 'running' state past stale_timeout_seconds."""
+        now_dt = datetime.now(UTC)
+        cleaned: list[dict[str, Any]] = []
+
+        with self._db.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT job_id, kind, payload_json, attempts, updated_at FROM jobs WHERE status = 'running'"
+            ).fetchall()
+
+            for row in rows:
+                updated_at_str = row["updated_at"]
+                is_stale = False
+                try:
+                    updated_dt = datetime.fromisoformat(updated_at_str)
+                    if updated_dt.tzinfo is None:
+                        updated_dt = updated_dt.replace(tzinfo=UTC)
+                    elapsed = (now_dt - updated_dt).total_seconds()
+                    if elapsed >= stale_timeout_seconds:
+                        is_stale = True
+                except (ValueError, TypeError):
+                    is_stale = True
+
+                if is_stale:
+                    job_id = row["job_id"]
+                    attempts = row["attempts"]
+                    payload = json.loads(row["payload_json"]) if row["payload_json"] else {}
+
+                    if attempts >= max_attempts:
+                        conn.execute(
+                            "UPDATE jobs SET status = 'failed', error = 'Worker timeout / orphaned job', updated_at = ? WHERE job_id = ?",
+                            (_now(), job_id),
+                        )
+                        cleaned.append({
+                            "job_id": job_id,
+                            "kind": row["kind"],
+                            "payload": payload,
+                            "action": "failed",
+                            "attempts": attempts,
+                        })
+                    else:
+                        conn.execute(
+                            "UPDATE jobs SET status = 'queued', updated_at = ? WHERE job_id = ?",
+                            (_now(), job_id),
+                        )
+                        cleaned.append({
+                            "job_id": job_id,
+                            "kind": row["kind"],
+                            "payload": payload,
+                            "action": "requeued",
+                            "attempts": attempts,
+                        })
+
+            conn.execute("COMMIT")
+
+        return cleaned
+

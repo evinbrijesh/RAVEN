@@ -85,3 +85,32 @@ class UnsafeOperation(RavenError):
     """An operation attempted to bypass the runtime safety policy."""
 
     code = "UNSAFE_OPERATION"
+
+
+class TargetUnreachableError(RavenError):
+    """Target endpoint or adapter is unreachable, dropped connection, or timed out."""
+
+    code = "TARGET_UNREACHABLE"
+    retryable = True
+
+
+class BudgetExceededError(BudgetExceeded):
+    """Scan budget (model calls, attacks, tokens) exceeded."""
+
+    code = "BUDGET_EXCEEDED"
+    retryable = False
+
+
+class ModelTimeoutError(ModelUnavailable):
+    """Model provider timed out during evaluation."""
+
+    code = "MODEL_TIMEOUT"
+    retryable = True
+
+
+class InvalidEvidenceError(RavenError):
+    """Evidence payload is corrupt, missing, or malformed."""
+
+    code = "INVALID_EVIDENCE"
+    retryable = False
+

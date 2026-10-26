@@ -25,6 +25,9 @@ Verifies the 24 specific integration requirements:
 22. Empty or incomplete test suite.
 23. Failed partial scan.
 24. Failed fatal scan.
+25. Worker mid-attack interruption recovery.
+26. Target unreachable fails partial.
+27. Stale job cleanup watchdog.
 """
 
 from __future__ import annotations
@@ -166,9 +169,9 @@ async def test_03_target_timeout(repos, fixtures_path: Path, monkeypatch) -> Non
 
     await engine.run(scan.scan_id)
 
-    # Scans with target timeouts on all attacks produce 0 findings -> completed without findings
+    # Scans with target timeouts on all attacks produce 0 evaluated cases -> failed_partial
     updated = repos.scans.get(scan.scan_id)
-    assert updated.status == ScanStatus.COMPLETED
+    assert updated.status == ScanStatus.FAILED_PARTIAL
     findings = repos.findings.list_for_scan(scan.scan_id)
     assert len(findings) == 0
 
@@ -709,4 +712,87 @@ async def test_25_worker_mid_attack_interruption_recovery(repos, fixtures_path: 
     case_ids = {r["attack_case_id"] for r in before_runs}
     assert "A-01" in case_ids
     assert len(case_ids) >= 2
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 26. Target unreachable fails partial
+# ──────────────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_26_target_unreachable_fails_partial(repos, fixtures_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("RAVEN_FIXTURES_DIR", str(fixtures_path))
+    from app.domain.errors import TargetUnreachableError
+
+    scan = _create_test_scan(repos)
+
+    class UnreachableTarget(TargetAdapter):
+        async def profile(self) -> TargetProfile:
+            return TargetProfile(
+                target_id=scan.target.target_id,
+                version="1.0",
+                tools=[],
+                system_prompt_hash="dummy_hash",
+            )
+
+        async def invoke(self, req: TargetRequest) -> TargetResponse:
+            raise TargetUnreachableError("Connection refused by target host")
+
+        async def apply_temporary_policy(self, candidate, prompt=None):
+            pass
+
+    engine = ScanEngine(repos, fixtures_path=str(fixtures_path))
+    engine._create_target = lambda s: UnreachableTarget()
+
+    await engine.run(scan.scan_id)
+
+    updated = repos.scans.get(scan.scan_id)
+    assert updated.status == ScanStatus.FAILED_PARTIAL
+    # Ensure no false clean pass
+    assert updated.status != ScanStatus.COMPLETED
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 27. Stale job cleanup watchdog
+# ──────────────────────────────────────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_27_stale_job_cleanup(repos) -> None:
+    import json
+    from datetime import timedelta
+
+    from app.domain.entities import utc_now
+
+    from evaluator.worker import cleanup_orphaned_jobs
+
+    scan = _create_test_scan(repos)
+    # Move scan to ATTACKING
+    repos.scans.update_status(scan.scan_id, ScanStatus.ATTACKING)
+
+    # Seed an orphaned job that has been stuck in 'running' with stale heartbeat (>300s)
+    stale_time = (utc_now() - timedelta(seconds=400)).isoformat()
+    job_id = f"job_stale_{uuid.uuid4().hex[:8]}"
+    repos.db.execute(
+        "INSERT INTO jobs (job_id, kind, payload_json, status, attempts, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            job_id,
+            "run_scan",
+            json.dumps({"scan_id": scan.scan_id}),
+            "running",
+            3,  # max_attempts reached
+            stale_time,
+            stale_time,
+        ),
+    )
+
+    cleaned = cleanup_orphaned_jobs(repos, stale_timeout_seconds=300.0)
+    assert cleaned >= 1
+
+    # Check job status in DB
+    job_row = repos.db.query_one("SELECT status FROM jobs WHERE job_id = ?", (job_id,))
+    assert job_row is not None
+    assert job_row["status"] == "failed"
+
+    # Check scan status in DB: orphaned running scan must transition to FAILED_PARTIAL
+    updated_scan = repos.scans.get(scan.scan_id)
+    assert updated_scan.status == ScanStatus.FAILED_PARTIAL
+
 

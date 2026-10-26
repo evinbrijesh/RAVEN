@@ -567,6 +567,42 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
             engine._persist_test_run(test_run)
 
         if not findings:
+            not_eval_count = sum(
+                1 for v in resolved_verdicts_list
+                if v.get("final_label") == FindingLabel.NOT_EVALUATED.value
+            )
+            total_count = len(resolved_verdicts_list)
+            if not_eval_count == total_count and total_count > 0:
+                logger.warning("Scan %s: all cases not_evaluated -> failed_partial", scan_id)
+                await engine._fail(scan_id, ScanStatus.FAILED_PARTIAL)
+                return {
+                    "resolved_verdicts": resolved_verdicts_list,
+                    "confirmed_findings": [],
+                    "status": "failed_partial",
+                    "phase": "all_cases_not_evaluated",
+                    "errors": state.get("errors", [])
+                    + ["All attack cases could not be evaluated (target unreachable or dropped)."],
+                }
+            if not_eval_count > 0:
+                logger.warning(
+                    "Scan %s: %d/%d cases not_evaluated -> completed_with_limitations",
+                    scan_id,
+                    not_eval_count,
+                    total_count,
+                )
+                engine._set_status(scan_id, ScanStatus.COMPLETED_WITH_LIMITATIONS, 1.0)
+                engine._emit(
+                    scan_id,
+                    EventKind.SCAN_COMPLETED,
+                    {"status": "completed_with_limitations", "graph_node": "resolve_verdicts"},
+                )
+                return {
+                    "resolved_verdicts": resolved_verdicts_list,
+                    "confirmed_findings": [],
+                    "status": "completed_with_limitations",
+                    "phase": "completed_with_limitations",
+                }
+
             logger.info("Scan %s produced 0 findings -> completing without hardening", scan_id)
             engine._set_status(scan_id, ScanStatus.COMPLETED, 1.0)
             engine._emit(
@@ -591,7 +627,13 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
     # 7. generate_hardening_proposal
     # ──────────────────────────────────────────────────────────────────────────
     async def generate_hardening_proposal_node(state: RavenScanState) -> dict[str, Any]:
-        if state.get("status") in ("completed", "failed_fatal", "failed_partial", "inconclusive"):
+        if state.get("status") in (
+            "completed",
+            "completed_with_limitations",
+            "failed_fatal",
+            "failed_partial",
+            "inconclusive",
+        ):
             return state
 
         scan_id = state["scan_id"]
@@ -974,6 +1016,13 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
                 EventKind.SCAN_COMPLETED,
                 {"status": "completed_without_retest", "graph_node": "generate_reports"},
             )
+        elif status_in_state == "completed_with_limitations":
+            engine._set_status(scan_id, ScanStatus.COMPLETED_WITH_LIMITATIONS, 1.0)
+            engine._emit(
+                scan_id,
+                EventKind.SCAN_COMPLETED,
+                {"status": "completed_with_limitations", "graph_node": "generate_reports"},
+            )
         elif status_in_state == "inconclusive":
             engine._set_status(scan_id, ScanStatus.INCONCLUSIVE, 1.0)
             engine._emit(
@@ -1093,7 +1142,12 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
     )
 
     def route_after_resolve(state: RavenScanState) -> str:
-        if state.get("status") in ("completed", "failed_fatal", "failed_partial"):
+        if state.get("status") in (
+            "completed",
+            "completed_with_limitations",
+            "failed_fatal",
+            "failed_partial",
+        ):
             return "generate_reports"
         return "generate_hardening_proposal"
 
