@@ -121,7 +121,7 @@ async def test_scan_without_findings_completes(repos, fixtures_path, monkeypatch
         )
     )
 
-    engine = ScanEngine(repos, fixtures_path=None)
+    engine = ScanEngine(repos, fixtures_path=str(fixtures_path))
     await engine.run(scan.scan_id)
     updated = repos.scans.get(scan.scan_id)
     assert updated is not None
