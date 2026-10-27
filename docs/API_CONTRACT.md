@@ -83,12 +83,29 @@ Response:
 }
 ```
 
+### Cancel Scan
+`POST /api/scans/{scan_id}/cancel`
+
+Cooperatively requests cancellation of an active or queued scan. If an evaluation task is currently running, the worker receives an abort signal, halts further attack iterations, and marks the scan with status `failed_partial`.
+
+Response `200 OK`:
+```json
+{
+  "scan_id": "scan_123",
+  "status": "failed_partial",
+  "message": "Scan cancelled by user request"
+}
+```
+
 ### Progress Stream
 `GET /api/scans/{scan_id}/events`
+`GET /api/scans/{scan_id}/events/stream`
 
-Server-Sent Events (`text/event-stream`):
+Server-Sent Events (`text/event-stream`). Includes automated 15-second `: ping\n\n` heartbeat keepalives and disconnect handling:
 
 ```text
+: ping
+
 event: attack_started
 data: {"attack_id":"A-04","category":"tool_misuse"}
 
@@ -240,9 +257,47 @@ All responses include `X-RAVEN-Report-Schema`, `X-RAVEN-Report-SHA256`, and
 Partial or failed scans return `200` with `summary.verdict` set to `partial` or
 `inconclusive`; they are never returned as a blank report.
 
-## 8. Core schemas
+### Audit Bundle Export
+`GET /api/scans/{scan_id}/bundle`
+
+Downloads a cryptographically sealed `.zip` archive containing the complete audit trail for the scan:
+
+- `report.sarif`: OASIS SARIF 2.1.0 code scanning findings
+- `report.md`: Executive summary & diff report
+- `report.json`: Canonical machine-readable report
+- `findings.json`: Full findings ledger with match signals
+- `transcripts.json`: Raw execution transcripts
+- `manifest.json`: Bundle metadata, file sizes, and timestamp
+- `sha256sums.txt`: Cryptographic SHA-256 manifest of all bundle contents
+
+Headers:
+- `Content-Type: application/zip`
+- `Content-Disposition: attachment; filename="raven_audit_bundle_{scan_id}.zip"`
+- `X-RAVEN-Bundle-SHA256: <sha256_hex_digest>`
+
+## 8. Target Types & Adapters
+
+RAVEN supports diverse evaluation targets:
+
+| Target Reference | Adapter Type | Description |
+|---|---|---|
+| `shophelper-local` | In-memory | Built-in customer support bot with simulated canary tokens and refund tool. |
+| `https://...` or `http://...` | HTTP | Live REST/HTTP endpoints with SSRF protection and `X-Raven-Scan-Consent: true`. |
+| `mcp-local` | MCP In-Process | Model Context Protocol server executing in-process. |
+| `mcp://localhost:8000/sse` | MCP SSE | Remote MCP tool server over Server-Sent Events transport. |
+| `stdio://...` | MCP Stdio | Subprocess executing an MCP server over stdin/stdout JSON-RPC 2.0. |
+
+## 9. Core schemas
 
 ### Attack case
+Catalog v1 (`A-01` to `A-12`) and Catalog v2 (`A-13` to `A-18`):
+
+- **A-13** (`mcp_injection`): Tool description prompt injection & privilege escalation
+- **A-14** (`mcp_injection`): Schema smuggling / parameter poisoning
+- **A-15** (`mcp_injection`): Canary token exfiltration via tool call arguments
+- **A-16** (`rag_poisoning`): Knowledge base context injection & override
+- **A-17** (`jailbreak_crescendo`): Multi-turn conversational trust escalation
+- **A-18** (`jailbreak_crescendo`): Hypothetical persona & fictional framing jailbreak
 
 ```json
 {
@@ -276,7 +331,7 @@ Partial or failed scans return `200` with `summary.verdict` set to `partial` or
 }
 ```
 
-## 9. Error format
+## 10. Error format
 
 ```json
 {

@@ -3,7 +3,7 @@
 # 🦅 RAVEN
 ### Autonomous Security Regression & Remediation Assurance for LLM Applications
 
-[![Tests](https://img.shields.io/badge/tests-296%20passed-emerald?style=for-the-badge&logo=pytest)](https://github.com/evinbrijesh/RAVEN)
+[![Tests](https://img.shields.io/badge/tests-293%2B%20passed-emerald?style=for-the-badge&logo=pytest)](https://github.com/evinbrijesh/RAVEN)
 [![PyPI - raven-test](https://img.shields.io/badge/PyPI-raven--test%20v1.0.0-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/raven-test/)
 [![PyPI - raven-guard](https://img.shields.io/badge/PyPI-raven--guard%20v1.0.0-indigo?style=for-the-badge&logo=pypi)](https://pypi.org/project/raven-guard/)
 [![SARIF 2.1.0](https://img.shields.io/badge/SARIF-2.1.0%20Compliant-purple?style=for-the-badge&logo=github)](https://github.com/oasis-tcs/sarif-spec)
@@ -47,8 +47,9 @@ flowchart TD
         direction TB
         A[Target Agent / HTTP / MCP Server] --> B[Reconnaissance Probe]
         B --> C[Attack Catalog Selection<br/>OWASP & MITRE ATLAS]
+        D --> E[Adaptive Red-Team Mutator<br/>Evasion & Encoding Variants]
         C --> D{Deterministic Rule Engine<br/>Canaries, PII, Tool Misuse}
-        D -- "Deflected / Refusal" --> E[Adaptive Red-Team Mutator<br/>Evasion & Encoding Variants]
+        D -- "Deflected / Refusal" --> E
         D -- "Confirmed Breach" --> F[Evidence Ledger]
         E --> G[Dual-Layer Judge & Resolver]
         G --> F
@@ -109,7 +110,7 @@ A mitigation is unacceptable if it breaks legitimate business workflows. RAVEN r
 
 ### 📜 Standards-Compliant Reporting & CI Gate
 - **OASIS SARIF 2.1.0:** Direct export compliant with GitHub Code Scanning (includes `%SRCROOT%` mapping, rules catalog metadata, security severity ratings, and stable finding fingerprints).
-- **Executive & Developer Reports:** Multi-format downloads in JSON, Markdown, and SARIF.
+- **Audit Bundle (.zip):** One-click signed archive download (`GET /api/scans/{id}/bundle`) packaging SARIF, markdown summary, canonical JSON, findings ledger, raw transcripts, manifest, and SHA-256 checksums.
 - **SSRF & Network Defense:** Validates URL schemes, blocks private/loopback/metadata IP ranges, and enforces `X-Raven-Scan-Consent: true`.
 
 ---
@@ -132,6 +133,12 @@ Every test case in the RAVEN catalog is versioned and cross-referenced with mode
 | **A-10** | `tool_misuse` | Execute refund without order verification | **OWASP-LLM06** | **AML.T0053** (Privilege Escalation) |
 | **A-11** | `tool_misuse` | Refund call with missing order ID | **OWASP-LLM06** | **AML.T0053** (Privilege Escalation) |
 | **A-12** | `tool_misuse` | High-value refund exceeding financial limit | **OWASP-LLM06** | **AML.T0053** (Privilege Escalation) |
+| **A-13** | `tool_misuse` (MCP) | Tool description injection to bypass parameters | **OWASP-LLM06 / LLM01** | **MCP-SEC01** |
+| **A-14** | `tool_misuse` (MCP) | Confused deputy chaining lookup to admin tool | **OWASP-LLM06** | **AML.T0053 / MCP-SEC02** |
+| **A-15** | `tool_misuse` (MCP) | Schema parameter smuggling via JSON payload | **OWASP-LLM06** | **MCP-SEC03** |
+| **A-16** | `direct_injection` (RAG) | Indirect prompt injection via poisoned document | **OWASP-LLM01** | **AML.T0051 / OWASP-RAG01** |
+| **A-17** | `canary_leakage` (RAG) | Canary token exfiltration via poisoned record | **OWASP-LLM07** | **AML.T0054 / OWASP-RAG02** |
+| **A-18** | `sensitive_data` (RAG) | PII extraction via knowledge base overrides | **OWASP-LLM02** | **AML.T0057** |
 
 ---
 
@@ -304,11 +311,11 @@ docker compose -f infra/docker-compose.yml up --build
 ```text
 RAVEN/
 ├── .github/
-│   ├── actions/raven-security-scan/ # Reusable composite GitHub Action
+│   ├── actions/raven-security-scan/ # Reusable composite GitHub Action for CI
 │   └── workflows/                   # Automated CI security & PR workflows
 ├── apps/
 │   ├── api/                         # FastAPI control plane
-│   │   ├── app/api/                 # Scans, findings, reports, projects, SSE
+│   │   ├── app/api/                 # Scans, findings, reports, projects, SSE, bundle export
 │   │   ├── app/application/         # Use cases (generate_report, approve_hardening)
 │   │   ├── app/domain/              # Entities, Enums, Value Objects
 │   │   ├── app/infrastructure/      # SQLite persistence, multi-tenant repos & queue
@@ -316,54 +323,80 @@ RAVEN/
 │   └── web/                         # Next.js 15 App Router dashboard
 │       ├── app/                     # Pages: /, /dashboard, /scans, /docs, /regression
 │       ├── components/findings/     # Findings table, Evidence drawer, Audit tab
-│       ├── components/scan/         # Live mission control, Radar HUD, Constellation
+│       ├── components/scan/         # Live mission control, Radar HUD, Constellation, Policy Modal
 │       ├── components/hardening/    # Side-by-side prompt & policy diff viewers
-│       └── components/report/       # SARIF/JSON/MD exports & SHA-256 verification
+│       └── components/report/       # SARIF/JSON/MD exports, Audit Bundle (.zip), SHA-256 verification
 ├── workers/
 │   └── evaluator/                   # Asynchronous evaluation worker & CLI
-│       ├── evaluator/cli.py         # CLI runner with SARIF 2.1.0 & scorecard output
+│       ├── evaluator/cli.py         # CLI runner (raven-test) with SARIF 2.1.0 & scorecard
 │       ├── evaluator/attacks/       # Recon agent, Adaptive mutator, Attack planner
 │       ├── evaluator/judges/        # Deterministic rule engine, LLM judge, Resolver
-│       ├── evaluator/targets/       # ShopHelper bot, Policy gateway, HTTP adapter
+│       ├── evaluator/targets/       # ShopHelper bot, Policy gateway, HTTP & MCP adapters
 │       ├── evaluator/hardening/     # Prompt hardener & Policy compiler
 │       └── evaluator/orchestration/ # LangGraph workflow & state machine
-└── packages/
-    ├── attack-catalog/              # Versioned attacks & benign utility cases
-    └── contracts/                   # Shared JSON schemas & SARIF specifications
+├── packages/
+│   ├── raven-guard/                 # Standalone fail-closed runtime policy gateway SDK
+│   ├── attack-catalog/              # Versioned attacks (v1 & v2) & benign utility cases
+│   └── contracts/                   # Shared JSON schemas & SARIF specifications
+├── examples/
+│   └── vulnerable-agent/            # Standalone starter agent for CLI and CI testing
+└── scripts/
+    └── demo_v1.py                   # Automated end-to-end verification and live demo script
 ```
 
 ---
 
 ## 🎬 Demo Walkthrough
 
+### Option A: Web Mission Control
 Follow the scripted **5-Minute Pitch Sequence** in [`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md):
 
 1. **Select Workspace:** Switch project workspaces from the header dropdown (e.g. `Default Project` vs `E-Commerce Agents`).
-2. **Launch Scan:** Select `shophelper-local` (or configure an authorized HTTP target) and click **Launch Scan**.
+2. **Launch Scan:** Select `shophelper-local` (or configure an authorized HTTP / MCP target) and click **Launch Scan**.
 3. **Observe Real-Time Stream:** Watch the live SSE event feed and dynamic agent constellation transition: `reconnaissance → attacking → arbitration → hardening`.
 4. **Inspect Evidence:** Click any finding in the triage table to open the slide-out **Evidence Drawer** showing cryptographic canary leaks or unauthorized tool calls.
 5. **Audit Disagreements:** Filter by the **"Judge Audit / Needs Review"** tab to inspect cases where the rule engine and model judge disagreed.
 6. **Review Hardening Diff:** Inspect side-by-side system prompt diffs and compiled tool policy constraints.
 7. **Approve Gate:** Click **Approve Hardening** (concurrency-protected via HTTP 409) to trigger target re-testing.
 8. **Verify Frontier Delta:** Review the **Security & Utility Frontier** card showing attack drop vs. benign usability preservation.
-9. **Export & Verify Audit Digest:** Download **SARIF 2.1.0**, JSON, or Markdown reports, and click **"Verify Audit Digest"** to validate cryptographic SHA-256 hashes in real-time.
-10. **Manage Regression Suite:** View permanent CI regression guardrails at `/regression`.
+9. **Export & Verify Audit Digest:** Download **SARIF 2.1.0**, JSON, Markdown reports, or click **"Export Audit Bundle (.zip)"** to download the complete sealed audit archive with cryptographic SHA-256 checksums.
+10. **Inspect Runtime Policy & CI Config:** Open the **"View Policy & CI Config"** modal to copy production `raven-guard` YAML and CI workflow rules.
+11. **Manage Regression Suite:** View permanent CI regression guardrails at `/regression`.
+
+### Option B: Automated Terminal Showcase (`scripts/demo_v1.py`)
+Run the self-contained live demonstration in seconds:
+
+```bash
+python3 scripts/demo_v1.py
+```
+
+This automated verification:
+1. Attacks an unhardened agent, demonstrating a critical parameter override breach (`ASR: 100.0%`).
+2. Compiles a fail-closed `raven-policy.yaml` runtime guardrail.
+3. Deploys the [`raven-guard`](packages/raven-guard) runtime gateway to actively intercept and deflect the exploit (`ASR: 0.0%`).
+4. Audits an MCP server across in-process, stdio, and SSE transports with schema smuggling and canary token verification.
 
 ---
 
 ## 🧪 Testing & Verification
 
-RAVEN is thoroughly verified with **187 automated tests** across API, worker, and CLI layers:
+RAVEN is thoroughly verified with **293+ automated tests** across API, worker, CLI, and runtime guard SDK:
 
 ```bash
-# Run all backend API tests (88 tests)
+# 1. Run all backend API tests (93 tests)
 uv run --directory apps/api pytest tests/
 
-# Run evaluator worker & CLI regression tests (99 tests)
+# 2. Run evaluator worker & CLI regression tests (128 tests + 10 soak cycles)
 uv run --directory workers/evaluator pytest tests/
 
-# Build Next.js web application
+# 3. Run runtime policy SDK tests (72 tests)
+uv run --directory packages/raven-guard pytest tests/
+
+# 4. Build Next.js web application
 npm --prefix apps/web run build
+
+# 5. Execute end-to-end automated showcase
+python3 scripts/demo_v1.py
 ```
 
 ---
