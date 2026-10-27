@@ -57,6 +57,16 @@ class PolicyGateway:
             if default_path:
                 self.load(default_path)
 
+    @classmethod
+    def from_yaml(cls, path_or_content: str | Path, **kwargs: Any) -> PolicyGateway:
+        """Instantiate a PolicyGateway directly from a YAML file path or YAML string."""
+        return cls(policy=path_or_content, **kwargs)
+
+    @classmethod
+    def from_file(cls, path: str | Path, **kwargs: Any) -> PolicyGateway:
+        """Instantiate a PolicyGateway directly from a policy file path."""
+        return cls(policy=path, **kwargs)
+
     @property
     def version(self) -> str:
         return self._document.version

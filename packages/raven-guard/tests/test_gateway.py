@@ -210,3 +210,27 @@ tools:
     assert "updated_tool" in gw.tools
     assert gw._reloader is None
 
+
+def test_gateway_from_yaml_and_from_file(tmp_path):
+    pfile = tmp_path / "custom-policy.yaml"
+    pfile.write_text("""
+version: "v1"
+tools:
+  - tool: test_service
+    conditions: []
+""")
+
+    gw_yaml = PolicyGateway.from_yaml(pfile)
+    assert gw_yaml.version == "v1"
+    assert "test_service" in gw_yaml.tools
+
+    gw_file = PolicyGateway.from_file(pfile)
+    assert gw_file.version == "v1"
+    assert "test_service" in gw_file.tools
+
+    # Direct YAML string
+    gw_str = PolicyGateway.from_yaml("version: v3\ntools:\n  - tool: inline_tool")
+    assert gw_str.version == "v3"
+    assert "inline_tool" in gw_str.tools
+
+
