@@ -183,6 +183,7 @@ def verify_artifact(
     and comparing against the recorded content_sha256 digest.
     """
     import json
+
     from app.application.report.service import _canonical_hash
     from app.domain.entities import utc_now
     from app.domain.errors import NotFoundError
@@ -201,7 +202,7 @@ def verify_artifact(
         if fmt == "json":
             try:
                 computed_hash = _canonical_hash(json.loads(raw_content))
-            except Exception:
+            except (json.JSONDecodeError, TypeError, ValueError, KeyError):
                 computed_hash = compute_sha256(raw_content)
             if computed_hash != expected_hash and compute_sha256(raw_content) == expected_hash:
                 computed_hash = expected_hash
@@ -232,8 +233,8 @@ def verify_artifact(
             canon = compute_run_artifact_hash(data)
             if canon == expected_hash:
                 computed_hash = canon
-        except Exception:
-            pass
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError):
+            computed_hash = compute_sha256(raw_json)
 
         is_valid = bool(expected_hash and computed_hash.lower() == expected_hash.lower())
         return {

@@ -1,9 +1,6 @@
 """Tests for atomic approval concurrency guard and artifact integrity verification."""
 
 import concurrent.futures
-from datetime import datetime, timezone
-import pytest
-from fastapi.testclient import TestClient
 
 from app.domain.entities import (
     HardeningProposal,
@@ -13,8 +10,7 @@ from app.domain.entities import (
     TranscriptMessage,
     utc_now,
 )
-from app.domain.enums import AttackCategory, EventKind, RunPhase, ScanStatus
-from app.main import create_app
+from app.domain.enums import AttackCategory, RunPhase, ScanStatus
 from app.security import compute_sha256
 
 
@@ -50,7 +46,6 @@ def test_approve_hardening_concurrency_guard(client):
     """Multiple concurrent approvals on the same scan must produce exactly 1 success and HTTP 409 for the rest."""
     app = client.app
     repos = app.state.repos
-    queue = app.state.queue
     scan_id = "scan_race_1"
     proposal_id = "prop_race_1"
     _seed_scan_awaiting_approval(repos, scan_id, proposal_id)

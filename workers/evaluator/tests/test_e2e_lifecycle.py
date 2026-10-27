@@ -18,9 +18,7 @@ import json
 from pathlib import Path
 
 import pytest
-from app.domain.entities import ScanConfig, utc_now
-from app.domain.enums import FindingLabel, ScanStatus, TestRunKind
-from app.infrastructure.queue.sqlite_queue import SqliteJobQueue
+from app.domain.enums import ScanStatus
 from app.main import create_app
 from fastapi.testclient import TestClient
 
@@ -52,7 +50,6 @@ def test_full_e2e_scan_approval_retest_and_report_lifecycle(e2e_env) -> None:
     client = e2e_env["client"]
     repos = e2e_env["repos"]
     queue = e2e_env["queue"]
-    fixtures_path = e2e_env["fixtures_path"]
 
     # 1. Initiate Scan via REST API
     payload = {
@@ -186,7 +183,6 @@ def test_scan_cancellation_mid_execution(e2e_env) -> None:
     """Verify that cancelling during attack execution stops worker safely."""
     client = e2e_env["client"]
     repos = e2e_env["repos"]
-    queue = e2e_env["queue"]
     fixtures_path = e2e_env["fixtures_path"]
 
     payload = {"target_id": "shophelper-local", "budget": {"max_attack_cases": 5}}
