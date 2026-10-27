@@ -141,7 +141,7 @@ tools:
     log_step("4. Active Guard Retest", "Replaying identical attack prompt through raven-guard")
 
     # Verify directly against PolicyGateway
-    decision = await gateway.authorize(
+    decision = gateway.authorize(
         tool="issue_refund",
         arguments={"order_id": "1001", "amount": 1000.0},
         context=PolicyContext(verified_order_id=False, verified_user=False),
