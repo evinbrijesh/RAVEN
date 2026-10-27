@@ -5,9 +5,10 @@ from __future__ import annotations
 import functools
 import inspect
 import re
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from raven_guard.context import get_current_context
 from raven_guard.errors import (
@@ -278,7 +279,7 @@ class PolicyGateway:
     ) -> tuple[bool, str]:
         """Evaluates a single condition string."""
         # Claims match expressions: e.g. "claims_match:customer_id==user_id"
-        if condition.startswith("claims_match:") or condition.startswith("claim_match:"):
+        if condition.startswith(("claims_match:", "claim_match:")):
             expr = condition.split(":", 1)[1]
             if "==" in expr:
                 left, right = [s.strip() for s in expr.split("==", 1)]
@@ -354,7 +355,7 @@ class PolicyGateway:
         if condition in self._custom_conditions:
             try:
                 return self._custom_conditions[condition](arguments, context, policy)
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001
                 return False, f"custom_condition_error:{condition}:{err}"
 
         return False, f"unknown_condition:{condition}"
@@ -389,14 +390,12 @@ class PolicyGateway:
                     violations.append(f"{param_name}:not_numeric")
 
             # Choice constraints
-            if "in" in rule_spec:
-                if val not in rule_spec["in"]:
-                    violations.append(f"{param_name}:not_in_allowed_choices")
+            if "in" in rule_spec and val not in rule_spec["in"]:
+                violations.append(f"{param_name}:not_in_allowed_choices")
 
             # Regex constraints
-            if "regex" in rule_spec and isinstance(val, str):
-                if not re.search(rule_spec["regex"], val):
-                    violations.append(f"{param_name}:regex_mismatch")
+            if "regex" in rule_spec and isinstance(val, str) and not re.search(rule_spec["regex"], val):
+                violations.append(f"{param_name}:regex_mismatch")
 
         return violations
 

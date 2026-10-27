@@ -33,7 +33,10 @@ def load_policy(source: str | Path | dict[str, Any] | PolicyDocument) -> PolicyD
     if isinstance(source, dict):
         return PolicyDocument.from_dict(source)
 
-    if isinstance(source, Path) or (isinstance(source, str) and (source.endswith(".yaml") or source.endswith(".yml") or source.endswith(".json") or "\n" not in source)):
+    if isinstance(source, Path) or (
+        isinstance(source, str)
+        and (source.endswith((".yaml", ".yml", ".json")) or "\n" not in source)
+    ):
         path = Path(source)
         if path.is_file():
             return load_policy_file(path)
@@ -63,7 +66,7 @@ def parse_policy_string(content: str, filename: str = "<string>") -> PolicyDocum
 
     data: Any = None
     # If it starts with { or [, try JSON first
-    if text.startswith("{") or text.startswith("["):
+    if text.startswith(("{", "[")):
         try:
             data = json.loads(text)
         except json.JSONDecodeError as err:

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Sequence
+from collections.abc import Callable, Sequence
+from typing import Any
 from uuid import UUID
 
 from raven_guard.context import get_current_context
@@ -13,7 +14,7 @@ from raven_guard.models import Decision, SecurityContext
 
 try:
     from langchain_core.callbacks.base import BaseCallbackHandler
-    from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+    from langchain_core.messages import BaseMessage, ToolMessage
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool, StructuredTool
     HAS_LANGCHAIN = True
@@ -320,7 +321,7 @@ def wrap_tool(
                 bound = sig.bind_partial(*args, **kwargs)
                 bound.apply_defaults()
                 call_kwargs = dict(bound.arguments)
-            except Exception:
+            except (TypeError, ValueError):
                 pass
 
         decision = gateway.authorize(name, call_kwargs, ctx)

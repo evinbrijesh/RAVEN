@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger("raven_guard.security")
 
@@ -81,8 +82,8 @@ def emit_security_event(event: SecurityAuditEvent) -> None:
         )
 
     # Dispatch to listeners
-    for listener in list(_LISTENERS):
+    for listener in _LISTENERS:
         try:
             listener(payload)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             logger.debug("Telemetry listener error: %s", exc)

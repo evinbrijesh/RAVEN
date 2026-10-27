@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
+
 from raven_guard import (
-    Decision,
-    PolicyDocument,
     PolicyGateway,
     SecurityContext,
     ToolPolicy,
