@@ -23,10 +23,8 @@ COPY workers/evaluator/README.md ./workers/evaluator/README.md
 COPY packages/raven-guard/pyproject.toml ./packages/raven-guard/pyproject.toml
 COPY packages/raven-guard/README.md ./packages/raven-guard/README.md
 
-# 2. Pre-fetch third-party dependencies for workspace members
-RUN uv sync --directory apps/api --no-install-workspace --no-dev && \
-    uv sync --directory workers/evaluator --no-install-workspace --no-dev && \
-    uv sync --directory packages/raven-guard --no-install-workspace --no-dev
+# 2. Pre-fetch third-party dependencies for all workspace members
+RUN uv sync --all-packages --no-install-workspace --no-dev
 
 # 3. Copy application source code, attack catalog, and fixtures
 COPY apps/api/app ./apps/api/app
@@ -37,14 +35,13 @@ COPY packages/attack-catalog ./packages/attack-catalog
 COPY fixtures ./fixtures
 COPY infra/start-backend.sh /app/start-backend.sh
 
-# 4. Install workspace packages in editable mode
-RUN uv sync --directory apps/api --no-dev && \
-    uv sync --directory workers/evaluator --no-dev && \
-    uv sync --directory packages/raven-guard --no-dev
+# 4. Install all workspace packages in editable mode
+RUN uv sync --all-packages --no-dev
 
 # 5. Make startup script executable and set PATH
 RUN chmod +x /app/start-backend.sh
-ENV PATH="/app/.venv/bin:${PATH}"
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONPATH="/app/apps/api:/app/workers/evaluator:/app/packages/raven-guard:${PYTHONPATH:-}"
 
 # Create non-root system user and configure persistent data volume permissions
 RUN groupadd -r raven && useradd -r -g raven -d /app -s /sbin/nologin raven && \

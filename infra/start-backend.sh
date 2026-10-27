@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+# Ensure apps/api, workers/evaluator, and packages/raven-guard are in PYTHONPATH
+export PYTHONPATH="/app/apps/api:/app/workers/evaluator:/app/packages/raven-guard:${PYTHONPATH:-}"
+
 echo "==> [RAVEN] Bootstrapping backend services..."
 
 # 1. Initialize SQLite schema & run migrations
