@@ -9,4 +9,4 @@ dependencies = [
 ]
 
 [tool.uv.workspace]
-members = ["apps/api", "workers/evaluator"]
+members = ["apps/api", "workers/evaluator", "packages/raven-guard"]

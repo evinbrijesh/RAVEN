@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "raven-guard"
+version = "0.1.0"
+description = "Deterministic, fail-closed runtime policy gateway and security guardrails for LLM tool calling"
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "RAVEN Security Team" }]
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

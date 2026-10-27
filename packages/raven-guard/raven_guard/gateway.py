@@ -1,0 +1,439 @@
+"""Fail-closed Policy Gateway and function protection decorators."""
+
+from __future__ import annotations
+
+import functools
+import inspect
+import re
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from raven_guard.context import get_current_context
+from raven_guard.errors import (
+    ApprovalRequiredError,
+    MalformedArgumentsError,
+    PolicyViolationError,
+)
+from raven_guard.loader import find_default_policy, load_policy
+from raven_guard.models import Decision, PolicyDocument, SecurityContext, ToolPolicy
+
+
+ConditionValidator = Callable[[dict[str, Any], SecurityContext, ToolPolicy], tuple[bool, str]]
+
+
+class PolicyGateway:
+    """Deterministic, fail-closed runtime policy gateway for LLM tool executions.
+
+    Enforces policies compiled by RAVEN's hardening agent or loaded from raven-policy.yaml/json.
+    """
+
+    def __init__(
+        self,
+        policy: str | Path | dict[str, Any] | PolicyDocument | None = None,
+        fail_closed: bool = True,
+        audit_log_size: int = 1000,
+    ) -> None:
+        self.fail_closed = fail_closed
+        self.audit_log_size = audit_log_size
+        self._document: PolicyDocument = PolicyDocument(fail_closed=fail_closed)
+        self.decisions: list[dict[str, Any]] = []
+        self._custom_conditions: dict[str, ConditionValidator] = {}
+
+        if policy is not None:
+            self.load(policy)
+        else:
+            default_path = find_default_policy()
+            if default_path:
+                self.load(default_path)
+
+    @property
+    def version(self) -> str:
+        return self._document.version
+
+    @property
+    def description(self) -> str:
+        return self._document.description
+
+    @property
+    def tools(self) -> dict[str, ToolPolicy]:
+        return self._document.tools
+
+    def load(self, source: str | Path | dict[str, Any] | PolicyDocument) -> None:
+        """Loads a policy document from file, string, dictionary, or PolicyDocument."""
+        doc = load_policy(source)
+        self._document = doc
+        self.fail_closed = doc.fail_closed
+
+    def apply_candidate(self, candidate: dict[str, Any] | ToolPolicy) -> None:
+        """Applies a single ToolPolicy or compiled PolicyCandidate dictionary."""
+        if isinstance(candidate, ToolPolicy):
+            self._document.tools[candidate.tool] = candidate
+        elif isinstance(candidate, dict) and "tool" in candidate:
+            self._document.tools[candidate["tool"]] = ToolPolicy.from_dict(candidate)
+        else:
+            raise ValueError(f"Invalid candidate format: {candidate}")
+
+    def clear(self) -> None:
+        """Clears all loaded policies and audit logs."""
+        self._document = PolicyDocument(fail_closed=self.fail_closed)
+        self.decisions.clear()
+
+    def register_condition(self, name: str, validator: ConditionValidator) -> None:
+        """Registers a custom condition evaluator."""
+        self._custom_conditions[name] = validator
+
+    def authorize(
+        self,
+        tool: str,
+        arguments: dict[str, Any] | None = None,
+        context: SecurityContext | dict[str, Any] | None = None,
+    ) -> Decision:
+        """Evaluates whether a tool call is authorized under the active policy.
+
+        Returns:
+            Decision: object with .allowed (bool), .reason (str), and violation details.
+        """
+        # Malformed arguments check
+        if arguments is None:
+            args: dict[str, Any] = {}
+        elif not isinstance(arguments, dict):
+            decision = Decision(
+                allowed=False,
+                reason="malformed_arguments:not_a_dict",
+                tool=tool,
+                policy_source="gateway_default",
+                violations=["malformed_arguments:not_a_dict"],
+            )
+            self._record(tool, {}, decision, context)
+            return decision
+        else:
+            args = arguments
+
+        ctx = SecurityContext.from_any(context) if context is not None else (get_current_context() or SecurityContext())
+
+        # Check for invalid numeric amounts in arguments
+        if "amount" in args and args["amount"] is not None:
+            try:
+                amt = float(args["amount"])
+                if amt < 0:
+                    decision = Decision(
+                        allowed=False,
+                        reason="malformed_arguments:negative_amount",
+                        tool=tool,
+                        policy_source="gateway_default",
+                        violations=["malformed_arguments:negative_amount"],
+                    )
+                    self._record(tool, args, decision, ctx)
+                    return decision
+            except (ValueError, TypeError):
+                decision = Decision(
+                    allowed=False,
+                    reason="malformed_arguments:invalid_amount_type",
+                    tool=tool,
+                    policy_source="gateway_default",
+                    violations=["malformed_arguments:invalid_amount_type"],
+                )
+                self._record(tool, args, decision, ctx)
+                return decision
+
+        policy = self._document.tools.get(tool)
+
+        # Fail closed: no policy for this tool -> deny
+        if policy is None:
+            allowed = not self.fail_closed
+            reason = "allowed_permissive_no_policy" if allowed else f"no_policy_for_tool:{tool}"
+            decision = Decision(
+                allowed=allowed,
+                reason=reason,
+                tool=tool,
+                policy_source="gateway_default",
+                violations=[] if allowed else [reason],
+            )
+            self._record(tool, args, decision, ctx)
+            return decision
+
+        # Role-based privilege check
+        if policy.allowed_roles:
+            has_role = any(r in policy.allowed_roles for r in ctx.roles)
+            if not has_role:
+                decision = Decision(
+                    allowed=False,
+                    reason="insufficient_role_privilege",
+                    tool=tool,
+                    policy_source="candidate",
+                    violations=["insufficient_role_privilege"],
+                )
+                self._record(tool, args, decision, ctx)
+                return decision
+
+        # Parameter rules validation (bounds, regex, choices)
+        param_violations = self._check_parameter_rules(policy.parameter_rules, args)
+        if param_violations:
+            decision = Decision(
+                allowed=False,
+                reason=f"parameter_rule_violation:{param_violations[0]}",
+                tool=tool,
+                policy_source="candidate",
+                violations=param_violations,
+            )
+            self._record(tool, args, decision, ctx)
+            return decision
+
+        # High-value action check: approval required if configured
+        if policy.high_value_action == "human_approval_required":
+            threshold = policy.amount_threshold if policy.amount_threshold is not None else 100.0
+            # Check effective amount from args or context
+            effective_amount = None
+            if "amount" in args and args["amount"] is not None:
+                try:
+                    effective_amount = float(args["amount"])
+                except (ValueError, TypeError):
+                    pass
+            elif ctx.amount is not None:
+                effective_amount = ctx.amount
+
+            if effective_amount is not None and effective_amount >= threshold:
+                decision = Decision(
+                    allowed=False,
+                    reason="high_value_action:approval_required",
+                    tool=tool,
+                    policy_source="candidate",
+                    violations=["high_value_action:approval_required"],
+                    metadata={"amount": effective_amount, "threshold": threshold},
+                )
+                self._record(tool, args, decision, ctx)
+                return decision
+
+        # Evaluate conditions list
+        for condition in policy.conditions:
+            ok, reason = self._check_condition(condition, args, ctx, policy)
+            if not ok:
+                decision = Decision(
+                    allowed=False,
+                    reason=reason,
+                    tool=tool,
+                    policy_source="candidate",
+                    violations=[reason],
+                )
+                self._record(tool, args, decision, ctx)
+                return decision
+
+        decision = Decision(
+            allowed=True,
+            reason="all_conditions_met",
+            tool=tool,
+            policy_source="candidate",
+        )
+        self._record(tool, args, decision, ctx)
+        return decision
+
+    def _check_condition(
+        self,
+        condition: str,
+        arguments: dict[str, Any],
+        context: SecurityContext,
+        policy: ToolPolicy,
+    ) -> tuple[bool, str]:
+        """Evaluates a single condition string."""
+        # Built-in condition checks matching RAVEN catalog & ADR requirement 8
+        if condition == "verified_order_id_present":
+            order_id = arguments.get("order_id") or context.order_id
+            if not context.verified_order_id or not order_id:
+                return False, "missing_verified_order_id"
+            return True, "ok"
+
+        if condition == "verified_user_present":
+            if not context.verified_user:
+                return False, "missing_verified_user"
+            return True, "ok"
+
+        if condition == "amount_below_threshold":
+            threshold = policy.amount_threshold if policy.amount_threshold is not None else 100.0
+            amt: float | None = None
+            if "amount" in arguments and arguments["amount"] is not None:
+                try:
+                    amt = float(arguments["amount"])
+                except (ValueError, TypeError):
+                    return False, "malformed_arguments:invalid_amount_type"
+            elif context.amount is not None:
+                amt = context.amount
+
+            if amt is None:
+                # If amount condition is required but no amount given, fail closed
+                return False, "missing_amount_for_threshold_check"
+            if amt >= threshold:
+                return False, "amount_at_or_above_threshold"
+            return True, "ok"
+
+        if condition == "user_id_matches_context":
+            arg_uid = arguments.get("user_id")
+            if arg_uid and context.user_id and str(arg_uid) != str(context.user_id):
+                return False, "user_id_mismatch"
+            return True, "ok"
+
+        # Check custom condition registry
+        if condition in self._custom_conditions:
+            try:
+                return self._custom_conditions[condition](arguments, context, policy)
+            except Exception as err:
+                return False, f"custom_condition_error:{condition}:{err}"
+
+        return False, f"unknown_condition:{condition}"
+
+    @staticmethod
+    def _check_parameter_rules(rules: dict[str, Any], arguments: dict[str, Any]) -> list[str]:
+        """Evaluates min/max/regex/in constraints on specific parameters."""
+        violations: list[str] = []
+        for param_name, rule_spec in rules.items():
+            if param_name not in arguments:
+                if rule_spec.get("required", False):
+                    violations.append(f"{param_name}:required")
+                continue
+
+            val = arguments[param_name]
+            if not isinstance(rule_spec, dict):
+                continue
+
+            # Numeric bounds
+            if "max" in rule_spec:
+                try:
+                    if float(val) > float(rule_spec["max"]):
+                        violations.append(f"{param_name}:exceeds_max_{rule_spec['max']}")
+                except (ValueError, TypeError):
+                    violations.append(f"{param_name}:not_numeric")
+
+            if "min" in rule_spec:
+                try:
+                    if float(val) < float(rule_spec["min"]):
+                        violations.append(f"{param_name}:below_min_{rule_spec['min']}")
+                except (ValueError, TypeError):
+                    violations.append(f"{param_name}:not_numeric")
+
+            # Choice constraints
+            if "in" in rule_spec:
+                if val not in rule_spec["in"]:
+                    violations.append(f"{param_name}:not_in_allowed_choices")
+
+            # Regex constraints
+            if "regex" in rule_spec and isinstance(val, str):
+                if not re.search(rule_spec["regex"], val):
+                    violations.append(f"{param_name}:regex_mismatch")
+
+        return violations
+
+    def _record(
+        self,
+        tool: str,
+        arguments: dict[str, Any],
+        decision: Decision,
+        context: SecurityContext | None,
+    ) -> None:
+        """Records an authorization decision in the in-memory audit ledger."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool": tool,
+            "arguments": arguments,
+            "allowed": decision.allowed,
+            "reason": decision.reason,
+            "policy_source": decision.policy_source,
+            "violations": list(decision.violations),
+            "context_summary": {
+                "verified_user": context.verified_user if context else False,
+                "verified_order_id": context.verified_order_id if context else False,
+                "user_id": context.user_id if context else None,
+                "order_id": context.order_id if context else None,
+            },
+        }
+        self.decisions.append(entry)
+        if len(self.decisions) > self.audit_log_size:
+            self.decisions.pop(0)
+
+    def protect(
+        self,
+        tool: str | None = None,
+        on_violation: str | Callable[..., Any] = "raise",
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Decorator that fail-closed authorizes calls to python functions / tools.
+
+        Args:
+            tool: Tool identifier in policy (defaults to func.__name__).
+            on_violation: 'raise' (default), 'return_decision', or custom callback.
+
+        Raises:
+            ApprovalRequiredError: When human approval is required.
+            PolicyViolationError: When unauthorized under policy.
+        """
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            target_tool = tool or func.__name__
+            sig = inspect.signature(func)
+
+            def _prepare_call(args: tuple[Any, ...], kwargs: dict[str, Any]) -> tuple[dict[str, Any], SecurityContext]:
+                bound = sig.bind_partial(*args, **kwargs)
+                bound.apply_defaults()
+                call_args = dict(bound.arguments)
+
+                # Extract context if passed as parameter
+                explicit_ctx = call_args.pop("_context", None)
+                if explicit_ctx is None:
+                    explicit_ctx = call_args.pop("context", None)
+
+                effective_ctx = SecurityContext.from_any(explicit_ctx) if explicit_ctx is not None else (get_current_context() or SecurityContext())
+
+                return call_args, effective_ctx
+
+            def _handle_denial(decision: Decision, call_args: dict[str, Any]) -> Any:
+                if on_violation == "return_decision":
+                    return decision
+                if callable(on_violation):
+                    return on_violation(decision, call_args)
+
+                # Default: raise security exception
+                if decision.reason == "high_value_action:approval_required":
+                    raise ApprovalRequiredError(
+                        f"Action '{target_tool}' requires explicit human approval: {decision.reason}",
+                        tool=target_tool,
+                        reason=decision.reason,
+                        decision=decision,
+                        arguments=call_args,
+                    )
+                if "malformed_arguments" in decision.reason:
+                    raise MalformedArgumentsError(
+                        f"Malformed arguments for '{target_tool}': {decision.reason}",
+                        tool=target_tool,
+                        reason=decision.reason,
+                        decision=decision,
+                        arguments=call_args,
+                    )
+                raise PolicyViolationError(
+                    f"Policy violation on '{target_tool}': {decision.reason}",
+                    tool=target_tool,
+                    reason=decision.reason,
+                    decision=decision,
+                    arguments=call_args,
+                )
+
+            if inspect.iscoroutinefunction(func):
+
+                @functools.wraps(func)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    call_args, effective_ctx = _prepare_call(args, kwargs)
+                    decision = self.authorize(target_tool, call_args, effective_ctx)
+                    if not decision.allowed:
+                        return _handle_denial(decision, call_args)
+                    return await func(*args, **kwargs)
+
+                return async_wrapper
+
+            @functools.wraps(func)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                call_args, effective_ctx = _prepare_call(args, kwargs)
+                decision = self.authorize(target_tool, call_args, effective_ctx)
+                if not decision.allowed:
+                    return _handle_denial(decision, call_args)
+                return func(*args, **kwargs)
+
+            return sync_wrapper
+
+        return decorator
