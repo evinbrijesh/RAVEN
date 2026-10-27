@@ -590,3 +590,124 @@ def test_sarif_github_code_scanning_schema_validation():
     assert res_low["ruleId"] == "RAVEN/LLM01-prompt-injection"
     assert res_low["ruleIndex"] == rule_ids.index("RAVEN/LLM01-prompt-injection")
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. raven-test init and Local Dry-Run Mode Tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_cli_init_creates_valid_starter_config(tmp_path: Path):
+    """Test raven-test init creates valid raven.yaml loadable by load_config_file."""
+    cfg_file = tmp_path / "raven.yaml"
+    parser = build_parser()
+    args = parser.parse_args(["init", "-o", str(cfg_file)])
+
+    code = await run_cli(args)
+    assert code == 0
+    assert cfg_file.exists()
+
+    content = cfg_file.read_text(encoding="utf-8")
+    assert "Autonomous AI Agent Security Regression Testing" in content
+    assert "categories:" in content
+    assert "fail_on: high" in content
+
+    # Verify that the generated YAML satisfies the Pydantic schema
+    loaded = load_config_file(cfg_file)
+    assert loaded.version == "1"
+    assert loaded.target.url.startswith("http")
+    assert "direct_injection" in loaded.categories
+    assert loaded.fail_on == "high"
+
+
+@pytest.mark.asyncio
+async def test_cli_init_refuses_overwrite_without_force(tmp_path: Path):
+    """Test raven-test init protects existing configs unless --force is given."""
+    cfg_file = tmp_path / "raven.yaml"
+    cfg_file.write_text("existing: true\n", encoding="utf-8")
+
+    parser = build_parser()
+    # Without --force
+    args = parser.parse_args(["init", "-o", str(cfg_file)])
+    code = await run_cli(args)
+    assert code == 1
+    assert cfg_file.read_text(encoding="utf-8") == "existing: true\n"
+
+    # With --force
+    args_force = parser.parse_args(["init", "-o", str(cfg_file), "-f"])
+    code_force = await run_cli(args_force)
+    assert code_force == 0
+    assert "Autonomous AI Agent Security Regression Testing" in cfg_file.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_cli_init_with_custom_target(tmp_path: Path):
+    """Test raven-test init embeds user-specified target URL and ID."""
+    cfg_file = tmp_path / "custom_raven.yaml"
+    parser = build_parser()
+    args = parser.parse_args([
+        "init",
+        "-o", str(cfg_file),
+        "--target-url", "https://api.my-agent.com/v1/chat",
+        "--target-id", "production-agent",
+    ])
+    code = await run_cli(args)
+    assert code == 0
+
+    loaded = load_config_file(cfg_file)
+    assert loaded.target.id == "production-agent"
+    assert loaded.target.url == "https://api.my-agent.com/v1/chat"
+
+
+def test_detect_local_agent_port_mocking(monkeypatch):
+    """Verify target auto-detection logic identifies active ports."""
+    from evaluator.cli import detect_local_agent
+
+    def mock_connect_ex(self, address):
+        _host, port = address
+        return 0 if port == 8000 else 111  # 8000 is open, others closed
+
+    import socket
+    monkeypatch.setattr(socket.socket, "connect_ex", mock_connect_ex)
+
+    target_id, target_url, desc = detect_local_agent()
+    assert target_id == "fastapi-agent"
+    assert "8000" in target_url
+    assert "FastAPI" in desc
+
+
+@pytest.mark.asyncio
+async def test_cli_run_dry_run_mode(capsys):
+    """Test raven-test run --dry-run profiles target and validates config without attacking."""
+    parser = build_parser()
+    args = parser.parse_args(["run", "--target", "shophelper-local", "--dry-run", "--max-cases", "5"])
+
+    code = await run_cli(args)
+    assert code == 0
+
+    captured = capsys.readouterr()
+    assert "[OK] Configuration Source" in captured.out
+    assert "[OK] Target Adapter       : shophelper-local" in captured.out
+    assert "[OK] Target Profile" in captured.out
+    assert "[DRY-RUN] Target is reachable and configuration is valid." in captured.out
+    # Asserts that attacks were NOT executed
+    assert "Frontier Security Scorecard" not in captured.out
+
+
+@pytest.mark.asyncio
+async def test_cli_run_dry_run_json_output(capsys):
+    """Test raven-test run --dry-run --output json outputs machine-readable validation payload."""
+    parser = build_parser()
+    args = parser.parse_args(["--target", "shophelper-local", "--dry-run", "--output", "json"])
+
+    code = await run_cli(args)
+    assert code == 0
+
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+    assert data["dry_run"] is True
+    assert data["status"] == "valid"
+    assert data["target_id"] == "shophelper-local"
+    assert "profile" in data
+    assert "get_order" in data["profile"]["tools"]
+
+

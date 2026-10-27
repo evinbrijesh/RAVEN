@@ -105,6 +105,12 @@ def _add_arguments(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Enable/disable colorized terminal diff and scorecard output",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        default=False,
+        help="Validate configuration and test target connectivity without executing attacks",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,8 +120,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_arguments(parser)
     subparsers = parser.add_subparsers(dest="subcommand")
-    run_parser = subparsers.add_parser("run", help="Execute security regression suite against configured target")
+
+    # 1. run subcommand
+    run_parser = subparsers.add_parser(
+        "run",
+        help="Execute security regression suite against configured target",
+    )
     _add_arguments(run_parser)
+
+    # 2. init subcommand
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Scaffold a starter raven.yaml configuration file with auto-detected local targets",
+    )
+    init_parser.add_argument(
+        "-o",
+        "--output",
+        default="raven.yaml",
+        help="Destination path for configuration file (default: raven.yaml)",
+    )
+    init_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        default=False,
+        help="Overwrite existing configuration file if it exists",
+    )
+    init_parser.add_argument(
+        "--target-url",
+        default=None,
+        help="Target API endpoint URL to configure (bypasses auto-detection)",
+    )
+    init_parser.add_argument(
+        "--target-id",
+        default=None,
+        help="Target identifier/name (default: my-agent)",
+    )
     return parser
 
 
@@ -399,7 +439,132 @@ def _emit_sarif(cases: list[AttackCase], verdicts: list, target_id: str) -> dict
     }
 
 
+STARTER_RAVEN_YAML_TEMPLATE = """# =============================================================================
+# RAVEN Configuration (raven.yaml)
+# Autonomous AI Agent Security Regression Testing & Frontier Hardening
+# Docs: https://github.com/evinbrijesh/RAVEN
+# =============================================================================
+version: "1"
+
+# Target LLM agent or application to evaluate
+target:
+  id: "{target_id}"
+  # HTTP endpoint where your agent is listening
+  url: "{target_url}"
+  # Request payload template: {{prompt}} will be substituted with the attack payload
+  request_template:
+    message: "{{prompt}}"
+  # JSON dot-path or key in the HTTP response containing the agent text response
+  response_json_path: "response"
+  # Optional HTTP request headers (e.g., authentication tokens)
+  headers:
+    Content-Type: "application/json"
+    # Authorization: "Bearer ${{MY_API_KEY}}"
+
+# Attack categories to test:
+# - direct_injection: System prompt override & goal hijacking
+# - canary_leakage: Confidential prompt & secret token extraction
+# - sensitive_data: Unauthorized disclosure of PII / tenant data
+# - tool_misuse: Excessive agency & unauthorized function execution
+categories:
+  - direct_injection
+  - canary_leakage
+  - sensitive_data
+  - tool_misuse
+
+# Security gate threshold for CI/CD exit code failure:
+# Choices: critical, high, medium, low, none
+fail_on: high
+
+# Exit non-zero if any confirmed security breach occurs (default: true)
+fail_on_breach: true
+
+# Results output format: text, json, sarif (OASIS SARIF 2.1.0), or junit
+output: text
+
+# Execution budget and safety limits
+budget:
+  max_cases: 10
+  per_call_timeout_seconds: 10.0
+  scan_timeout_seconds: 60.0
+  concurrency_limit: 1
+"""
+
+
+def detect_local_agent() -> tuple[str, str, str | None]:
+    """Auto-detect if a local agent is running on standard local ports.
+
+    Returns (target_id, target_url, detected_port_desc).
+    """
+    import socket
+
+    port_candidates = [
+        (8000, "fastapi-agent", "http://localhost:8000/chat", "FastAPI / Uvicorn (port 8000)"),
+        (3000, "nextjs-agent", "http://localhost:3000/api/chat", "Next.js / Node.js (port 3000)"),
+        (8080, "http-agent", "http://localhost:8080/chat", "HTTP Service (port 8080)"),
+        (5000, "flask-agent", "http://localhost:5000/chat", "Flask Service (port 5000)"),
+        (11434, "ollama-agent", "http://localhost:11434/api/chat", "Ollama LLM (port 11434)"),
+    ]
+    for port, tid, url, desc in port_candidates:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.settimeout(0.2)
+                if sock.connect_ex(("127.0.0.1", port)) == 0:
+                    return tid, url, desc
+        except OSError:
+            continue
+
+    return "my-agent", "http://localhost:8000/chat", None
+
+
+def run_init(args: argparse.Namespace) -> int:
+    """Scaffold a starter raven.yaml configuration file with auto-detected local targets."""
+    out_path = Path(getattr(args, "output", "raven.yaml"))
+    force = getattr(args, "force", False)
+
+    if out_path.exists() and not force:
+        print(
+            f"[RAVEN Error] Configuration file '{out_path}' already exists. Use --force to overwrite.",
+            file=sys.stderr,
+        )
+        return 1
+
+    target_url_arg = getattr(args, "target_url", None)
+    target_id_arg = getattr(args, "target_id", None)
+
+    if target_url_arg:
+        target_url = target_url_arg
+        target_id = target_id_arg or "my-agent"
+        detected_info = "specified via flag"
+    else:
+        detected_id, detected_url, port_desc = detect_local_agent()
+        target_url = detected_url
+        target_id = target_id_arg or detected_id
+        detected_info = (
+            f"auto-detected active listener on {port_desc}"
+            if port_desc
+            else "default fallback (no active local agent detected on common ports)"
+        )
+
+    content = STARTER_RAVEN_YAML_TEMPLATE.format(
+        target_id=target_id,
+        target_url=target_url,
+    )
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(content.strip() + "\n", encoding="utf-8")
+
+    print(f"✨ Scaffolded starter RAVEN configuration at: {out_path.resolve()}")
+    print(f"   Target: {target_id} ({target_url}) [{detected_info}]")
+    print(f"   Validate setup: raven-test run --config {out_path} --dry-run")
+    print(f"   Run scan:       raven-test run --config {out_path}")
+    return 0
+
+
 async def run_cli(args: argparse.Namespace) -> int:
+    if getattr(args, "subcommand", None) == "init":
+        return run_init(args)
+
     # 1. Load declarative configuration file (if present or specified)
     try:
         config = load_config_file(getattr(args, "config", None))
@@ -559,6 +724,49 @@ async def run_cli(args: argparse.Namespace) -> int:
         target = build_target(scan)
 
     profile = await target.profile()
+
+    # 6b. Local dry-run verification mode
+    if getattr(args, "dry_run", False):
+        if output_format == "json":
+            print(json.dumps({
+                "dry_run": True,
+                "status": "valid",
+                "target_id": target_id,
+                "target_url": target_url,
+                "adapter": target_adapter,
+                "planned_cases": len(cases),
+                "categories": categories or sorted({c.category.value for c in cases}),
+                "fail_on": fail_on_threshold,
+                "fail_on_breach": fail_on_breach,
+                "profile": {
+                    "tools": profile.tools,
+                    "canary_present": bool(profile.canary_token),
+                    "system_prompt_hash": profile.system_prompt_hash,
+                },
+            }, indent=2))
+        else:
+            config_source = getattr(args, "config", None) or "auto-detected/defaults"
+            print("=" * 60)
+            print("RAVEN Security Gate — Local Dry-Run Configuration Check")
+            print("=" * 60)
+            print(f"[OK] Configuration Source : {config_source}")
+            print(f"[OK] Target Adapter       : {target_adapter}")
+            print(f"[OK] Target Identifier    : {target_id}")
+            if target_url:
+                print(f"[OK] Target Endpoint URL  : {target_url}")
+            print("[OK] Target Profile       :")
+            print(f"     - Discovered Tools   : {profile.tools or 'None'}")
+            print(f"     - System Prompt Hash : {profile.system_prompt_hash[:16]}...")
+            print(f"     - Canary Token       : {'PRESENT (Protected)' if profile.canary_token else 'None'}")
+            print("[OK] Attack Execution Plan:")
+            print(f"     - Planned Test Cases : {len(cases)} cases")
+            print(f"     - Categories Filter  : {categories or 'All default categories'}")
+            print(f"     - Failure Threshold  : >= {fail_on_threshold.upper()} (fail_on_breach={fail_on_breach})")
+            print(f"     - Output Format      : {output_format}")
+            print("=" * 60)
+            print("[DRY-RUN] Target is reachable and configuration is valid. Ready for security scan.")
+            print("=" * 60)
+        return 0
 
     from evaluator.orchestration.phases import _judge_context
 
@@ -737,7 +945,10 @@ async def run_cli(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    code = asyncio.run(run_cli(args))
+    if getattr(args, "subcommand", None) == "init":
+        code = run_init(args)
+    else:
+        code = asyncio.run(run_cli(args))
     sys.exit(code)
 
 
