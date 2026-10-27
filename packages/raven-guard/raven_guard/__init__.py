@@ -32,6 +32,7 @@ from raven_guard.loader import (
 )
 from raven_guard.models import (
     Decision,
+    PolicyContext,
     PolicyDocument,
     SecurityContext,
     ToolPolicy,
@@ -51,6 +52,7 @@ __all__ = [
     "MalformedArgumentsError",
     "OpenTelemetrySecurityListener",
     "PolicyConfigurationError",
+    "PolicyContext",
     "PolicyDocument",
     "PolicyGateway",
     "PolicyViolationError",

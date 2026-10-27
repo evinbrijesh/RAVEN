@@ -149,6 +149,10 @@ class SecurityContext:
         )
 
 
+# Backward-compatible alias
+PolicyContext = SecurityContext
+
+
 @dataclass
 class ToolPolicy:
     """Policy rules governing a specific tool."""

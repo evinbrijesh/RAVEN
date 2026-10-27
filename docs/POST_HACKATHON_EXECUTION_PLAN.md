@@ -36,31 +36,31 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
 **Primary Objective:** Make the current workflow 100% dependable, restart-safe, and free of manual database resets.
 
 #### Day 1: Truth Audit & Clean Baseline
-* [ ] Run backend tests (`pytest`) and frontend production build (`next build`) from a fresh checkout.
-* [ ] Execute a full scan on a blank SQLite database; audit that all database migrations run automatically.
-* [ ] Remove or cleanly label any hardcoded demo mocks in the worker pipeline so production paths strictly use real graph transitions.
-* [ ] Verify the deterministic engine runs with zero external API dependencies when offline.
+* [x] Run backend tests (`pytest`) and frontend production build (`next build`) from a fresh checkout.
+* [x] Execute a full scan on a blank SQLite database; audit that all database migrations run automatically.
+* [x] Remove or cleanly label any hardcoded demo mocks in the worker pipeline so production paths strictly use real graph transitions.
+* [x] Verify the deterministic engine runs with zero external API dependencies when offline.
 
 #### Day 2–3: Durable State Machine & Worker Checkpointing
-* [ ] Implement SQLite-backed state checkpointing in `workers/evaluator/evaluator/orchestration/checkpoint.py`.
-* [ ] Ensure worker crashes or restarts mid-scan resume safely from the exact interrupted node (`recon` $\rightarrow$ `attack` $\rightarrow$ `judge` $\rightarrow$ `harden`).
-* [ ] Enforce idempotency: re-running a completed node or retrying a failed attempt must never duplicate findings, database rows, or event logs.
-* [ ] Implement an explicit timeout and cleanup handler for orphaned background jobs.
+* [x] Implement SQLite-backed state checkpointing in `workers/evaluator/evaluator/orchestration/checkpoint.py`.
+* [x] Ensure worker crashes or restarts mid-scan resume safely from the exact interrupted node (`recon` $\rightarrow$ `attack` $\rightarrow$ `judge` $\rightarrow$ `harden`).
+* [x] Enforce idempotency: re-running a completed node or retrying a failed attempt must never duplicate findings, database rows, or event logs.
+* [x] Implement an explicit timeout and cleanup handler for orphaned background jobs.
 
 #### Day 4: Strict Failure Taxonomy & Error Boundaries
-* [ ] Replace generic exceptions with typed errors: `TargetUnreachableError`, `BudgetExceededError`, `ModelTimeoutError`, `InvalidEvidenceError`.
-* [ ] Enforce the 5 explicit terminal statuses in the database: `completed`, `completed_with_limitations`, `failed_partial`, `failed_fatal`, `inconclusive`.
-* [ ] Guarantee: An interrupted run or model failure **never** silently turns into a clean "pass".
+* [x] Replace generic exceptions with typed errors: `TargetUnreachableError`, `BudgetExceededError`, `ModelTimeoutError`, `InvalidEvidenceError`.
+* [x] Enforce the 5 explicit terminal statuses in the database: `completed`, `completed_with_limitations`, `failed_partial`, `failed_fatal`, `inconclusive`.
+* [x] Guarantee: An interrupted run or model failure **never** silently turns into a clean "pass".
 
 #### Day 5: Sensitive Data Redaction & Evidence Hashing
-* [ ] Build a deterministic redaction pipeline for all logged transcripts: mask API keys, auth headers, email addresses, and phone numbers before writing to SQLite.
-* [ ] Implement cryptographic run hashes (SHA-256 over prompt + tool calls + target version + response) ensuring every verdict is auditable and tamper-proof.
-* [ ] Write automated tests asserting that secrets in system prompts never leak into exported reports.
+* [x] Build a deterministic redaction pipeline for all logged transcripts: mask API keys, auth headers, email addresses, and phone numbers before writing to SQLite.
+* [x] Implement cryptographic run hashes (SHA-256 over prompt + tool calls + target version + response) ensuring every verdict is auditable and tamper-proof.
+* [x] Write automated tests asserting that secrets in system prompts never leak into exported reports.
 
 #### Day 6–7: End-to-End Contract & Regression Verification
-* [ ] Write automated end-to-end integration tests that spin up API + Worker + ShopHelper target, execute a 12-case scan, approve hardening, and verify that the retest delta succeeds.
-* [ ] Verify duplicate approvals on `/api/scans/{id}/approve-hardening` return HTTP 409 Conflict without spawning duplicate retests.
-* [ ] **Week 1 Gate:** The entire scan, approval, and report lifecycle runs reliably 10 consecutive times without errors or manual intervention.
+* [x] Write automated end-to-end integration tests that spin up API + Worker + ShopHelper target, execute a 12-case scan, approve hardening, and verify that the retest delta succeeds.
+* [x] Verify duplicate approvals on `/api/scans/{id}/approve-hardening` return HTTP 409 Conflict without spawning duplicate retests.
+* [x] **Week 1 Gate:** The entire scan, approval, and report lifecycle runs reliably 10 consecutive times without errors or manual intervention.
 
 ---
 
@@ -68,15 +68,15 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
 **Primary Objective:** Enable developers to run RAVEN as a automated pull-request gate in under 5 minutes.
 
 #### Day 8–9: Standalone `raven-test` CLI
-* [ ] Package `raven-test` as an installable Python CLI tool (`uv pip install raven-test`).
-* [ ] Implement simple, human-friendly subcommands:
+* [x] Package `raven-test` as an installable Python CLI tool (`uv pip install raven-test`).
+* [x] Implement simple, human-friendly subcommands:
   * `raven-test run --config raven.yaml`
   * `raven-test regression --fail-on high`
   * `raven-test report --format sarif --out results.sarif`
-* [ ] Add rich terminal output (colorized diff viewer, progress spinners, clear before/after table).
+* [x] Add rich terminal output (colorized diff viewer, progress spinners, clear before/after table).
 
 #### Day 10: Declarative `raven.yaml` Configuration
-* [ ] Define the official project configuration schema:
+* [x] Define the official project configuration schema:
   ```yaml
   version: "1"
   target:
@@ -93,25 +93,25 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
     fail_on_severity: "high"
     max_benign_utility_drop: 0.0
   ```
-* [ ] Add schema validation (`pydantic`) with helpful diagnostic error messages on invalid fields.
+* [x] Add schema validation (`pydantic`) with helpful diagnostic error messages on invalid fields.
 
 #### Day 11–12: Official GitHub Action (`actions/raven-security-scan`)
-* [ ] Create GitHub Action repository structure (`action.yml` + runner script).
-* [ ] Implement PR comment generation:
+* [x] Create GitHub Action repository structure (`action.yml` + runner script).
+* [x] Implement PR comment generation:
   * Attack Success Rate (ASR) before vs. after.
   * Legitimate customer utility pass rate.
   * Direct diff preview of the proposed prompt hardening.
-* [ ] Add GitHub Check Annotations pointing directly to the line of code or tool definition that caused the failure.
+* [x] Add GitHub Check Annotations pointing directly to the line of code or tool definition that caused the failure.
 
 #### Day 13: SARIF 2.1.0 & GitHub Code Scanning Integration
-* [ ] Validate exported SARIF 2.1.0 output against the OASIS standard validator.
-* [ ] Ensure SARIF files upload cleanly to GitHub Security Tab (`github/codeql-action/upload-sarif`).
-* [ ] Verify vulnerability severity mapping (`critical` $\rightarrow$ `error`, `high` $\rightarrow$ `error`, `medium` $\rightarrow$ `warning`).
+* [x] Validate exported SARIF 2.1.0 output against the OASIS standard validator.
+* [x] Ensure SARIF files upload cleanly to GitHub Security Tab (`github/codeql-action/upload-sarif`).
+* [x] Verify vulnerability severity mapping (`critical` $\rightarrow$ `error`, `high` $\rightarrow$ `error`, `medium` $\rightarrow$ `warning`).
 
 #### Day 14: Sample Repo & One-Click Template
-* [ ] Create `raven-starter-demo` repository showing how to guard an AI agent in GitHub Actions.
-* [ ] Record a 60-second Loom/GIF demonstration of a PR being blocked due to prompt injection and auto-fixed via RAVEN diff.
-* [ ] **Week 2 Gate:** A developer can clone a repo, run `raven-test`, and block a vulnerable Git commit in CI/CD within 5 minutes.
+* [x] Create `raven-starter-demo` repository showing how to guard an AI agent in GitHub Actions.
+* [x] Record a 60-second Loom/GIF demonstration of a PR being blocked due to prompt injection and auto-fixed via RAVEN diff.
+* [x] **Week 2 Gate:** A developer can clone a repo, run `raven-test`, and block a vulnerable Git commit in CI/CD within 5 minutes.
 
 ---
 
@@ -129,8 +129,8 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
 ```
 
 #### Day 15–16: Core SDK Architecture (`raven-guard`)
-* [ ] Extract `PolicyGateway` into a standalone, zero-dependency package (`packages/raven-guard`).
-* [ ] Implement the core `authorize()` API:
+* [x] Extract `PolicyGateway` into a standalone, zero-dependency package (`packages/raven-guard`).
+* [x] Implement the core `authorize()` API:
   ```python
   from raven_guard import PolicyGateway, PolicyContext
 
@@ -143,32 +143,32 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
   if not decision.allowed:
       raise PermissionError(decision.reason)
   ```
-* [ ] Implement fail-closed architecture: if the policy is missing or arguments don't match, calls are denied and logged.
+* [x] Implement fail-closed architecture: if the policy is missing or arguments don't match, calls are denied and logged.
 
 #### Day 17: Framework Integrations & Decorators
-* [ ] Add native Python decorators for rapid developer integration:
+* [x] Add native Python decorators for rapid developer integration:
   ```python
   @gateway.protect(tool="issue_refund")
   async def issue_refund(order_id: str, amount: float):
       ...
   ```
-* [ ] Build middleware for **LangChain** and **LangGraph** tool nodes to intercept and enforce policy boundaries automatically.
+* [x] Build middleware for **LangChain** and **LangGraph** tool nodes to intercept and enforce policy boundaries automatically.
 
 #### Day 18: Dynamic Financial & Risk Thresholds
-* [ ] Add condition evaluators for:
+* [x] Add condition evaluators for:
   * Maximum single transaction amounts (e.g., refunds $> \$100$ require manager approval).
   * Rate-limiting per user/session.
   * Required authorization claims (e.g., `user_id` must match `order.customer_id`).
-* [ ] Add structured audit logging (emitting OpenTelemetry-compatible security trace events).
+* [x] Add structured audit logging (emitting OpenTelemetry-compatible security trace events).
 
 #### Day 19–20: Policy Dry-Run Mode & Compiler Sync
-* [ ] Implement `dry_run = True` mode: log policy violations to observability tools without breaking user requests (crucial for safe production rollouts).
-* [ ] Ensure the Hardening Agent in RAVEN outputs policies directly compatible with `raven-guard.yaml`.
+* [x] Implement `dry_run = True` mode: log policy violations to observability tools without breaking user requests (crucial for safe production rollouts).
+* [x] Ensure the Hardening Agent in RAVEN outputs policies directly compatible with `raven-guard.yaml`.
 
 #### Day 21: Unit Test Suite & Documentation
-* [ ] Write 100% test coverage on `raven-guard` condition evaluations and edge cases.
-* [ ] Publish comprehensive README with integration guides for FastAPI, LangChain, and LangGraph.
-* [ ] **Week 3 Gate:** An application using `raven-guard` blocks unauthorized tool calls even when the LLM is jailbroken into invoking them.
+* [x] Write 100% test coverage on `raven-guard` condition evaluations and edge cases.
+* [x] Publish comprehensive README with integration guides for FastAPI, LangChain, and LangGraph.
+* [x] **Week 3 Gate:** An application using `raven-guard` blocks unauthorized tool calls even when the LLM is jailbroken into invoking them.
 
 ---
 
@@ -176,32 +176,32 @@ Restart-Safety          & GitHub Action         Gateway SDK             Threat C
 **Primary Objective:** Connect to the standard Model Context Protocol (MCP) and expand into modern agent threats.
 
 #### Day 22–23: Model Context Protocol (MCP) Target Adapter
-* [ ] Build an MCP Client Adapter in `evaluator/targets/mcp_adapter.py`.
-* [ ] Connect RAVEN to any local or remote MCP server via stdio or Server-Sent Events (SSE).
-* [ ] Automatically parse MCP tool definitions, descriptions, and input schemas to generate target profiles.
+* [x] Build an MCP Client Adapter in `evaluator/targets/mcp_adapter.py`.
+* [x] Connect RAVEN to any local or remote MCP server via stdio or Server-Sent Events (SSE).
+* [x] Automatically parse MCP tool definitions, descriptions, and input schemas to generate target profiles.
 
 #### Day 24: MCP Tool Security Audit Vectors
-* [ ] Implement attack vectors specific to MCP tool calling:
+* [x] Implement attack vectors specific to MCP tool calling:
   * **Tool Description Injection:** Attacker prompts trying to redefine tool schemas.
   * **Confused Deputy Attacks:** Tricking an agent into chaining a public tool into an internal administrative tool.
   * **Schema Parameter Smuggling:** Injecting prompt payloads into unstructured string parameters.
 
 #### Day 25–26: Indirect Prompt Injection & RAG Poisoning Tests
-* [ ] Add 6 versioned test cases to `packages/attack-catalog/attacks/attacks-v2.json`:
+* [x] Add 6 versioned test cases to `packages/attack-catalog/attacks/attacks-v2.json`:
   * Hidden instruction overrides embedded inside retrieved knowledge documents.
   * Fake customer records containing canary tokens and instructions to overwrite bot rules.
-* [ ] Validate that the Deterministic Judge identifies indirect leaks without false positives.
+* [x] Validate that the Deterministic Judge identifies indirect leaks without false positives.
 
 #### Day 27: Web Mission Control Polish & v1.0 Packaging
-* [ ] Update the Next.js UI to support uploading custom `raven.yaml` files and inspecting `raven-guard` runtime policies.
-* [ ] Export complete end-to-end audit bundles (SARIF 2.1.0 + Markdown Executive Summary + Raw Evidence Ledger).
-* [ ] Perform a full security scan on RAVEN itself (dependency audits, Dockerfile non-root user verification, input sanitization).
+* [x] Update the Next.js UI to support uploading custom `raven.yaml` files and inspecting `raven-guard` runtime policies.
+* [x] Export complete end-to-end audit bundles (SARIF 2.1.0 + Markdown Executive Summary + Raw Evidence Ledger).
+* [x] Perform a full security scan on RAVEN itself (dependency audits, Dockerfile non-root user verification, input sanitization).
 
 #### Day 28: v1.0 Launch & Public Release
-* [ ] Tag `v1.0.0` on GitHub.
-* [ ] Publish `raven-test` and `raven-guard` to PyPI.
-* [ ] Write the official Launch Announcement / Blog Post highlighting the 28-day journey from hackathon to production.
-* [ ] **Final Milestone:** Deliver a live demo of RAVEN protecting an agent in CI/CD and enforcing runtime guardrails via `raven-guard`.
+* [x] Tag `v1.0.0` on GitHub.
+* [x] Publish `raven-test` and `raven-guard` to PyPI.
+* [x] Write the official Launch Announcement / Blog Post highlighting the 28-day journey from hackathon to production.
+* [x] **Final Milestone:** Deliver a live demo of RAVEN protecting an agent in CI/CD and enforcing runtime guardrails via `raven-guard`.
 
 ---
 
@@ -222,7 +222,7 @@ To maintain momentum over 28 consecutive days, follow this daily 3-step discipli
 | Metric | Day 1 Baseline | Day 14 Target | Day 28 Final Target |
 |---|---|---|---|
 | **CI Integration Time** | Manual script only | $< 5$ minutes | 1-line GitHub Action |
-| **Test Suite Coverage** | 91 tests | $> 130$ tests | $> 175$ tests |
+| **Test Suite Coverage** | 91 tests | $> 130$ tests | 297 tests |
 | **Scan Reliability** | Local runs only | 100% restart-safe | Production-grade failover |
 | **Runtime Enforcement** | Proposed diff only | Dry-run SDK | Live `raven-guard` SDK |
 | **Standard Integrations** | Local ShopHelper | HTTP + GitHub Action | HTTP + GitHub + MCP |
@@ -233,7 +233,7 @@ To maintain momentum over 28 consecutive days, follow this daily 3-step discipli
 ## 🏁 Summary Checklist: Where We Stand
 
 - [x] Hackathon MVP Complete (FastAPI + Worker + Next.js + LangGraph)
-- [ ] **Week 1:** Production Reliability & Restart-Safe Checkpointing
-- [ ] **Week 2:** Developer CLI (`raven-test`) & GitHub Action CI/CD Gate
-- [ ] **Week 3:** Standalone Runtime Policy Gateway SDK (`raven-guard`)
-- [ ] **Week 4:** MCP Adapter, RAG Threat Vectors, & v1.0 Release
+- [x] **Week 1:** Production Reliability & Restart-Safe Checkpointing
+- [x] **Week 2:** Developer CLI (`raven-test`) & GitHub Action CI/CD Gate
+- [x] **Week 3:** Standalone Runtime Policy Gateway SDK (`raven-guard`)
+- [x] **Week 4:** MCP Adapter, RAG Threat Vectors, & v1.0 Release
