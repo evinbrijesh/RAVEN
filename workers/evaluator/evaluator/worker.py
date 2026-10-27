@@ -12,11 +12,14 @@ import logging
 import signal
 import sys
 
+from app.domain.entities import ScanEvent, utc_now
+from app.domain.enums import EventKind, ScanStatus
 from app.infrastructure.db.repository import Repositories
 from app.infrastructure.db.sqlite import Database
 
 from evaluator.config import get_worker_settings
 from evaluator.orchestration.phases import ScanEngine
+from evaluator.orchestration.state_machine import is_terminal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,6 +92,22 @@ async def _worker_slot(
             tb_str = traceback.format_exc()
             logger.exception("job %s failed", job["job_id"])
             _fail(repos, job["job_id"], str(exc), traceback=tb_str)
+            scan_id = (job.get("payload") or {}).get("scan_id")
+            if scan_id:
+                try:
+                    scan = repos.scans.get(scan_id)
+                    if scan and not is_terminal(scan.status):
+                        repos.scans.update_status(scan_id, ScanStatus.FAILED_FATAL)
+                        repos.events.append(
+                            ScanEvent(
+                                scan_id=scan_id,
+                                kind=EventKind.SCAN_FAILED,
+                                payload={"status": "failed_fatal", "error": str(exc)},
+                                created_at=utc_now(),
+                            )
+                        )
+                except Exception:
+                    logger.exception("Failed to update status for scan %s on worker failure", scan_id)
         finally:
             current_task = asyncio.current_task()
             if current_task and current_task in active_tasks:
