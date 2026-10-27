@@ -17,25 +17,28 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Workspace metadata first (root + both members) for dependency-layer caching.
+# Workspace metadata first (root + members) for dependency-layer caching.
 COPY pyproject.toml ./pyproject.toml
+COPY README.md ./README.md
 COPY apps/api/pyproject.toml ./apps/api/pyproject.toml
 COPY workers/evaluator/pyproject.toml ./workers/evaluator/pyproject.toml
+COPY workers/evaluator/README.md ./workers/evaluator/README.md
+COPY packages/raven-guard/pyproject.toml ./packages/raven-guard/pyproject.toml
+COPY packages/raven-guard/README.md ./packages/raven-guard/README.md
 
-# Third-party dependencies only. Sync from the member directory: the
-# workspace root is a virtual project, so a root-level sync would install no
-# members. This resolves raven-evaluator's deps, including raven-api's.
+# Third-party dependencies only.
 RUN uv sync --directory workers/evaluator --no-install-workspace --no-dev
 
-# Source: control-plane domain (imported by the worker), worker package,
+# Source: control-plane domain, worker package, raven-guard,
 # versioned attack catalog, and ShopHelper fixtures.
 COPY apps/api/app ./apps/api/app
 COPY apps/api/migrations ./apps/api/migrations
 COPY workers/evaluator/evaluator ./workers/evaluator/evaluator
+COPY packages/raven-guard/raven_guard ./packages/raven-guard/raven_guard
 COPY packages/attack-catalog ./packages/attack-catalog
 COPY fixtures ./fixtures
 
-# Install workspace members (editable) — provides both `app` and `evaluator`.
+# Install workspace members (editable).
 RUN uv sync --directory workers/evaluator --no-dev
 
 ENV PATH="/app/.venv/bin:${PATH}"
