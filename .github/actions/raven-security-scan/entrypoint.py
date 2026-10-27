@@ -19,9 +19,17 @@ from typing import Any
 
 # Ensure apps/api and workers/evaluator are in sys.path
 ACTION_DIR = Path(__file__).resolve().parent
-REPO_ROOT = ACTION_DIR.parents[1]
+REPO_ROOT = None
+for parent in ACTION_DIR.parents:
+    if (parent / "apps" / "api").is_dir():
+        REPO_ROOT = parent
+        break
+if REPO_ROOT is None:
+    REPO_ROOT = ACTION_DIR.parents[2]
+
 sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
 sys.path.insert(0, str(REPO_ROOT / "workers" / "evaluator"))
+sys.path.insert(0, str(REPO_ROOT / "packages" / "raven-guard"))
 
 from app.domain.entities import Budget
 from app.domain.enums import AttackCategory, FindingLabel, RunPhase, Severity

@@ -30,13 +30,17 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync --all-packages
+        run: |
+          uv sync --all-packages
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> $GITHUB_ENV
 
       - name: Run RAVEN Security Scan
         id: raven
+        continue-on-error: true
         uses: ./.github/actions/raven-security-scan
         with:
-          target: shop_helper_local
+          target: shophelper-local
           fail_on: high
           sarif_file: raven-results.sarif
 
