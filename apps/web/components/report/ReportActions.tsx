@@ -4,15 +4,33 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   ApiRequestError,
+  downloadAuditBundle,
   getReportText,
   reportFilename,
   type ReportFormat,
 } from "@/lib/api-client";
 
-/** Export actions: JSON / Markdown / SARIF downloads + printable view link. */
+/** Export actions: JSON / Markdown / SARIF downloads + printable view link + audit bundle. */
 export default function ReportActions({ scanId }: { scanId: string }) {
   const [exporting, setExporting] = useState<ReportFormat | null>(null);
+  const [downloadingBundle, setDownloadingBundle] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleDownloadBundle(): Promise<void> {
+    setDownloadingBundle(true);
+    setError(null);
+    try {
+      await downloadAuditBundle(scanId);
+    } catch (cause) {
+      setError(
+        cause instanceof ApiRequestError
+          ? `${cause.code}: ${cause.message}`
+          : "Audit bundle export failed.",
+      );
+    } finally {
+      setDownloadingBundle(false);
+    }
+  }
 
   async function exportReport(format: ReportFormat): Promise<void> {
     setExporting(format);
@@ -117,6 +135,15 @@ jobs:
         title="Download ready-to-run GitHub Actions workflow (.github/workflows/raven-security-gate.yml)"
       >
         Export GitHub Action (.yml)
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleDownloadBundle()}
+        disabled={downloadingBundle}
+        className="rounded-md border border-cyan-700/60 bg-cyan-950/30 px-3 py-1.5 text-xs font-medium text-cyan-300 hover:bg-cyan-900/40 disabled:opacity-50"
+        title="Download complete compliance audit bundle containing SARIF 2.1.0, Markdown summary, findings ledger, and SHA-256 manifest"
+      >
+        {downloadingBundle ? "Packaging…" : "Export Audit Bundle (.zip)"}
       </button>
     </div>
   );

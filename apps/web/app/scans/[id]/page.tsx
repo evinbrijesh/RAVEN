@@ -31,8 +31,17 @@ import {
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
 import ScanRadarPulse, { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
 import FrontierChart from "@/components/report/FrontierChart";
-import { getScan, getFindings, getProposal, approveHardening, getScanEvents } from "@/lib/api-client";
+import {
+  getScan,
+  getFindings,
+  getProposal,
+  approveHardening,
+  getScanEvents,
+  cancelScan,
+  downloadAuditBundle,
+} from "@/lib/api-client";
 import { connectScanEvents } from "@/lib/sse-client";
+import PolicyConfigModal from "@/components/scan/PolicyConfigModal";
 import type { TargetProfile, ScanEvent, Finding, ScanView, HardeningProposal, AttackCategory } from "@/lib/types";
 
 /* ─── Phase stepper ──────────────────────────────────────────────────────── */
@@ -435,6 +444,9 @@ export default function LiveScanPage() {
   const [traceAgent, setTraceAgent] = useState<AgentId | null>(null);
   const [isApproving, setIsApproving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [isDownloadingBundle, setIsDownloadingBundle] = useState(false);
+  const [showPolicyModal, setShowPolicyModal] = useState(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
 
@@ -623,6 +635,42 @@ export default function LiveScanPage() {
     }
   };
 
+  const handleCancelScan = async () => {
+    if (!confirm("Are you sure you want to cancel this active scan? This will halt probe execution.")) {
+      return;
+    }
+    setIsCancelling(true);
+    try {
+      await cancelScan(scanId);
+      setEventsList((l) => [
+        ...l,
+        {
+          id: `cancel-${Date.now()}`,
+          ts: new Date().toLocaleTimeString(),
+          attackId: "OPERATOR",
+          category: "direct_injection",
+          message: "Scan cooperative abort triggered by operator.",
+        },
+      ]);
+      await refreshScanData();
+    } catch {
+      // offline fallback
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const handleDownloadBundle = async () => {
+    setIsDownloadingBundle(true);
+    try {
+      await downloadAuditBundle(scanId);
+    } catch {
+      // offline fallback
+    } finally {
+      setIsDownloadingBundle(false);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-full">
       <TopBar
@@ -648,7 +696,43 @@ export default function LiveScanPage() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2 font-mono text-xs">
+            <div className="flex flex-wrap items-center gap-2 font-mono text-xs">
+              {isScanning && (
+                <button
+                  type="button"
+                  onClick={() => void handleCancelScan()}
+                  disabled={isCancelling}
+                  className="inline-flex items-center gap-1.5 rounded border border-red-500/40 bg-red-950/20 px-2.5 py-1 text-red-300 hover:text-red-200 hover:bg-red-900/30 transition-colors disabled:opacity-50"
+                  title="Abort the currently running scan safely"
+                >
+                  <Pause className="h-3 w-3" />
+                  <span>{isCancelling ? "Cancelling..." : "Cancel Scan"}</span>
+                </button>
+              )}
+
+              {currentPhase === "Report" && (
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadBundle()}
+                  disabled={isDownloadingBundle}
+                  className="inline-flex items-center gap-1.5 rounded border border-cyan-500/40 bg-cyan-950/20 px-2.5 py-1 text-cyan-300 hover:text-cyan-200 hover:bg-cyan-900/30 transition-colors disabled:opacity-50"
+                  title="Download complete compliance audit bundle (.zip) with SARIF 2.1.0, Markdown summary, and evidence ledger"
+                >
+                  <ShieldCheck className="h-3 w-3" />
+                  <span>{isDownloadingBundle ? "Packaging..." : "Audit Bundle (.zip)"}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowPolicyModal(true)}
+                className="inline-flex items-center gap-1.5 rounded border border-teal-500/40 bg-teal-950/20 px-2.5 py-1 text-teal-300 hover:text-teal-200 hover:bg-teal-900/30 transition-colors"
+                title="Inspect compiled raven-guard runtime policy and raven.yaml CI configuration"
+              >
+                <Cpu className="h-3 w-3" />
+                <span>Policy & CI Config</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => void refreshScanData()}
@@ -861,6 +945,18 @@ export default function LiveScanPage() {
           agentId={traceAgent}
           agents={constellation.agents}
           onClose={() => setTraceAgent(null)}
+        />
+      )}
+
+      {/* Policy and CI Configuration Inspector Modal */}
+      {showPolicyModal && (
+        <PolicyConfigModal
+          isOpen={showPolicyModal}
+          onClose={() => setShowPolicyModal(false)}
+          scanId={scanId}
+          targetId={scanView?.target_id || "shophelper-local"}
+          proposal={proposal}
+          profile={profile}
         />
       )}
     </div>

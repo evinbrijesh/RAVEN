@@ -318,3 +318,29 @@ export function getHealth(): Promise<{ status: string; service: string }> {
   return request<{ status: string; service: string }>("/health");
 }
 
+export function cancelScan(
+  scanId: string,
+): Promise<{ scan_id: string; status: string; message: string }> {
+  return request<{ scan_id: string; status: string; message: string }>(
+    `/api/scans/${encodeURIComponent(scanId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export function getAuditBundleUrl(scanId: string): string {
+  return `${API_BASE_URL}/api/scans/${encodeURIComponent(scanId)}/bundle`;
+}
+
+export async function downloadAuditBundle(scanId: string): Promise<void> {
+  const url = getAuditBundleUrl(scanId);
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) throw await toApiError(response);
+  const blob = await response.blob();
+  const downloadUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = downloadUrl;
+  anchor.download = `raven_audit_bundle_${scanId}.zip`;
+  anchor.click();
+  URL.revokeObjectURL(downloadUrl);
+}
+
