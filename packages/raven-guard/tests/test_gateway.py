@@ -137,3 +137,76 @@ def test_gateway_audit_log_rotation(sample_policy):
     # Check that oldest were evicted and newest retained
     orders = [d["arguments"]["order_id"] for d in gw.decisions]
     assert orders == ["ORD-2", "ORD-3", "ORD-4"]
+
+
+def test_gateway_reload_when_file_updated(tmp_path):
+    pfile = tmp_path / "raven-policy.yaml"
+    pfile.write_text("""
+version: "v1"
+tools:
+  - tool: tool_a
+    conditions: []
+""")
+
+    gw = PolicyGateway(pfile)
+    assert "tool_a" in gw.tools
+    assert "tool_b" not in gw.tools
+
+    # Calling reload without modifications returns False
+    assert gw.reload() is False
+
+    # Overwrite file with tool_b added
+    import time
+    time.sleep(0.01)
+    pfile.write_text("""
+version: "v2"
+tools:
+  - tool: tool_a
+    conditions: []
+  - tool: tool_b
+    conditions: []
+""")
+
+    reloaded = gw.reload()
+    assert reloaded is True
+    assert gw.version == "v2"
+    assert "tool_b" in gw.tools
+
+
+def test_gateway_reload_force_and_no_file():
+    # In-memory dictionary has no policy path
+    gw = PolicyGateway({"version": "v1", "tools": []})
+    assert gw.reload() is False
+    assert gw.reload(force=True) is False
+
+
+def test_gateway_auto_reload(tmp_path):
+    pfile = tmp_path / "raven-policy.yaml"
+    pfile.write_text("""
+version: "v1"
+tools:
+  - tool: initial_tool
+""")
+
+    gw = PolicyGateway(pfile)
+    assert "initial_tool" in gw.tools
+
+    gw.start_auto_reload(interval_seconds=0.05)
+
+    import time
+    time.sleep(0.02)
+    pfile.write_text("""
+version: "v2"
+tools:
+  - tool: updated_tool
+""")
+
+    # Wait for background thread to detect mtime change
+    deadline = time.time() + 1.0
+    while time.time() < deadline and "updated_tool" not in gw.tools:
+        time.sleep(0.05)
+
+    gw.stop_auto_reload()
+    assert "updated_tool" in gw.tools
+    assert gw._reloader is None
+

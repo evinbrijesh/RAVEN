@@ -15,9 +15,13 @@ from raven_guard.errors import (
 )
 from raven_guard.gateway import PolicyGateway
 from raven_guard.integrations import (
+    OpenTelemetrySecurityListener,
     RavenGuardCallbackHandler,
+    RavenGuardMiddleware,
     RavenGuardToolNode,
     RavenToolInterceptor,
+    setup_opentelemetry,
+    trace_tool_execution,
     wrap_tool,
 )
 from raven_guard.loader import (
@@ -45,12 +49,14 @@ __all__ = [
     "ApprovalRequiredError",
     "Decision",
     "MalformedArgumentsError",
+    "OpenTelemetrySecurityListener",
     "PolicyConfigurationError",
     "PolicyDocument",
     "PolicyGateway",
     "PolicyViolationError",
     "RavenGuardCallbackHandler",
     "RavenGuardError",
+    "RavenGuardMiddleware",
     "RavenGuardToolNode",
     "RavenToolInterceptor",
     "SecurityAuditEvent",
@@ -66,6 +72,8 @@ __all__ = [
     "reset_current_context",
     "security_context",
     "set_current_context",
+    "setup_opentelemetry",
+    "trace_tool_execution",
     "unregister_telemetry_listener",
     "wrap_tool",
 ]

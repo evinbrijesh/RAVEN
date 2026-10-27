@@ -190,11 +190,21 @@ class PolicyDocument:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PolicyDocument:
         tools: dict[str, ToolPolicy] = {}
-        for entry in data.get("tools", []):
-            if isinstance(entry, dict) and "tool" in entry:
-                tools[entry["tool"]] = ToolPolicy.from_dict(entry)
-            elif isinstance(entry, ToolPolicy):
-                tools[entry.tool] = entry
+        raw_tools = data.get("tools", [])
+        if isinstance(raw_tools, dict):
+            for tool_name, spec in raw_tools.items():
+                if isinstance(spec, dict):
+                    tool_data = dict(spec)
+                    tool_data.setdefault("tool", tool_name)
+                    tools[tool_name] = ToolPolicy.from_dict(tool_data)
+                elif isinstance(spec, ToolPolicy):
+                    tools[tool_name] = spec
+        elif isinstance(raw_tools, (list, tuple)):
+            for entry in raw_tools:
+                if isinstance(entry, dict) and "tool" in entry:
+                    tools[entry["tool"]] = ToolPolicy.from_dict(entry)
+                elif isinstance(entry, ToolPolicy):
+                    tools[entry.tool] = entry
 
         return cls(
             version=str(data.get("version", "v1")),

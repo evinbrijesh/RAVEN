@@ -45,6 +45,10 @@ class PolicyGateway:
         self._document: PolicyDocument = PolicyDocument(fail_closed=fail_closed)
         self.decisions: list[dict[str, Any]] = []
         self._custom_conditions: dict[str, ConditionValidator] = {}
+        self._policy_path: Path | None = None
+        self._last_mtime: float | None = None
+        self._reloader: Any = None
+        self._reloader_stop_event: Any = None
 
         if policy is not None:
             self.load(policy)
@@ -65,11 +69,76 @@ class PolicyGateway:
     def tools(self) -> dict[str, ToolPolicy]:
         return self._document.tools
 
+    @property
+    def policy_path(self) -> Path | None:
+        return self._policy_path
+
     def load(self, source: str | Path | dict[str, Any] | PolicyDocument) -> None:
         """Loads a policy document from file, string, dictionary, or PolicyDocument."""
+        if isinstance(source, (str, Path)):
+            p = Path(source)
+            if p.is_file():
+                self._policy_path = p.resolve()
+                try:
+                    self._last_mtime = self._policy_path.stat().st_mtime
+                except OSError:
+                    pass
         doc = load_policy(source)
         self._document = doc
         self.fail_closed = doc.fail_closed
+
+    def reload(self, force: bool = False) -> bool:
+        """Reloads the policy document from the configured file path if modified.
+
+        Returns:
+            True if policy was successfully reloaded, False if unchanged or no file.
+        """
+        if self._policy_path is None or not self._policy_path.is_file():
+            return False
+
+        try:
+            curr_mtime = self._policy_path.stat().st_mtime
+            if force or self._last_mtime is None or curr_mtime > self._last_mtime:
+                doc = load_policy(self._policy_path)
+                self._document = doc
+                self.fail_closed = doc.fail_closed
+                self._last_mtime = curr_mtime
+                return True
+        except (OSError, ValueError):
+            return False
+
+        return False
+
+    def start_auto_reload(self, interval_seconds: float = 1.0) -> None:
+        """Starts a background daemon thread that periodically reloads the policy file."""
+        if self._reloader is not None and self._reloader.is_alive():
+            return
+
+        import threading
+
+        stop_event = threading.Event()
+
+        def _watch_loop():
+            while not stop_event.is_set():
+                stop_event.wait(interval_seconds)
+                if stop_event.is_set():
+                    break
+                self.reload()
+
+        self._reloader_stop_event = stop_event
+        self._reloader = threading.Thread(
+            target=_watch_loop, daemon=True, name="RavenGuardPolicyReloader"
+        )
+        self._reloader.start()
+
+    def stop_auto_reload(self) -> None:
+        """Stops the background auto-reloading thread."""
+        if self._reloader_stop_event is not None:
+            self._reloader_stop_event.set()
+        if self._reloader is not None:
+            self._reloader.join(timeout=2.0)
+            self._reloader = None
+            self._reloader_stop_event = None
 
     def apply_candidate(self, candidate: dict[str, Any] | ToolPolicy) -> None:
         """Applies a single ToolPolicy or compiled PolicyCandidate dictionary."""
