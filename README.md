@@ -3,8 +3,10 @@
 # 🦅 RAVEN
 ### Autonomous Security Regression & Remediation Assurance for LLM Applications
 
-[![Tests](https://img.shields.io/badge/tests-187%20passed-emerald?style=for-the-badge&logo=pytest)](https://github.com/evinbrijesh/RAVEN)
-[![SARIF 2.1.0](https://img.shields.io/badge/SARIF-2.1.0%20Compliant-indigo?style=for-the-badge&logo=github)](https://github.com/oasis-tcs/sarif-spec)
+[![Tests](https://img.shields.io/badge/tests-296%20passed-emerald?style=for-the-badge&logo=pytest)](https://github.com/evinbrijesh/RAVEN)
+[![PyPI - raven-test](https://img.shields.io/badge/PyPI-raven--test%20v1.0.0-blue?style=for-the-badge&logo=pypi)](https://pypi.org/project/raven-test/)
+[![PyPI - raven-guard](https://img.shields.io/badge/PyPI-raven--guard%20v1.0.0-indigo?style=for-the-badge&logo=pypi)](https://pypi.org/project/raven-guard/)
+[![SARIF 2.1.0](https://img.shields.io/badge/SARIF-2.1.0%20Compliant-purple?style=for-the-badge&logo=github)](https://github.com/oasis-tcs/sarif-spec)
 [![OWASP](https://img.shields.io/badge/OWASP-LLM%20Top%2010%20(2025)-orange?style=for-the-badge)](https://owasp.org/www-project-top-10-for-large-language-model-applications/)
 [![MITRE ATLAS](https://img.shields.io/badge/MITRE-ATLAS%20Mapped-red?style=for-the-badge)](https://atlas.mitre.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
@@ -14,7 +16,7 @@
   Turning AI security from a one-time penetration audit into a continuous, verifiable regression suite.
 </p>
 
-[Quickstart](#-quickstart) • [The Closed-Loop Engine](#-the-closed-loop-engine) • [Key Features](#-key-features) • [Threat Matrix](#-threat-matrix-mapping) • [Architecture](#-architecture) • [CI/CD & CLI](#-cicd-github-action--cli-runner) • [Demo Walkthrough](#-demo-walkthrough)
+[Quickstart](#-quickstart) • [Architecture](#-end-to-end-architecture-discovery--runtime-prevention) • [Key Features](#-key-features) • [Threat Matrix](#-threat-matrix-mapping) • [CI/CD & CLI](#-cicd-github-action--cli-runner) • [MCP Guide](#-model-context-protocol-mcp-security-scanning) • [Demo Walkthrough](#-demo-walkthrough)
 
 ---
 
@@ -27,32 +29,53 @@ Every time an AI team tweaks an LLM application's prompt, adds a tool, or upgrad
 Traditional red-team scanners (e.g. PyRIT, promptfoo, Garak) are **open-loop**: they produce vulnerability reports and leave developers to guess what to fix and whether the fix broke legitimate customer requests.
 
 **RAVEN is closed-loop**:
-1. **Discovers** vulnerabilities with cryptographic-grade evidence (exact canaries, PII leaks, unauthorized tool calls).
-2. **Synthesizes** constrained mitigations (system prompt diffs + runtime tool policy candidates).
+1. **Discovers** vulnerabilities with cryptographic-grade evidence (exact canaries, PII leaks, unauthorized tool calls, MCP exploits).
+2. **Synthesizes** constrained mitigations (system prompt diffs + deterministic `raven-policy.yaml` runtime guardrails).
 3. **Guards** with human-in-the-loop approvals backed by atomic concurrency guards (`HTTP 409 Conflict`).
 4. **Measures the Frontier**: Re-tests attack cases while running a **benign utility suite** to quantify security gains vs. over-refusal penalties.
 5. **Findings Become Tests**: Converts confirmed findings into continuous regression suites executed on every CI commit and PR via GitHub Actions.
-6. **Verifies Integrity**: Cryptographically hashes run artifacts and transcripts with SHA-256 for tamper-evident auditing.
+6. **Enforces at Runtime**: Automatically compiles guardrails directly into [`raven-guard`](packages/raven-guard) for fail-closed runtime defense.
+7. **Verifies Integrity**: Cryptographically hashes run artifacts and transcripts with SHA-256 for tamper-evident auditing.
 
 ---
 
-## 🔄 The Closed-Loop Engine
+## 🏛️ End-to-End Architecture (Discovery + Runtime Prevention)
 
 ```mermaid
-flowchart LR
-    A([Target Discovery]) --> B[Reconnaissance<br/>Active Probes]
-    B --> C[Attack Catalog<br/>OWASP & MITRE]
-    C --> D{Stage 1: Deterministic<br/>Rule Checks}
-    D -- "Deflected / Blocked" --> E[Stage 2: Adaptive<br/>LLM Mutator]
-    D -- "Confirmed Leak" --> F[Evidence Ledger]
-    E --> G[Dual-Layer Judge<br/>Rule + LLM]
-    G --> F
-    F --> H[Hardening Proposal<br/>Prompt Diff + Tool Policy]
-    H --> I{Human Approval Gate<br/>Atomic 409 Guard}
-    I -- "Approved" --> J[Retest Attack Cases]
-    I -- "Approved" --> K[Benign Utility Suite]
-    J & K --> L[Security & Utility Frontier<br/>ASR Gain vs. Over-Refusal]
-    L --> M[(Continuous Regression Suite<br/>CI SARIF 2.1.0)]
+flowchart TD
+    subgraph DISCOVERY ["🔍 Discovery & Regression Gate (RAVEN Engine)"]
+        direction TB
+        A[Target Agent / HTTP / MCP Server] --> B[Reconnaissance Probe]
+        B --> C[Attack Catalog Selection<br/>OWASP & MITRE ATLAS]
+        C --> D{Deterministic Rule Engine<br/>Canaries, PII, Tool Misuse}
+        D -- "Deflected / Refusal" --> E[Adaptive Red-Team Mutator<br/>Evasion & Encoding Variants]
+        D -- "Confirmed Breach" --> F[Evidence Ledger]
+        E --> G[Dual-Layer Judge & Resolver]
+        G --> F
+        F --> H[Hardening Compiler<br/>Prompt Diff + raven-policy.yaml]
+    end
+
+    subgraph HUMAN_GATE ["🛡️ Human-in-the-Loop Review & Retest"]
+        direction TB
+        H --> I{Reviewer Approval Gate<br/>Atomic 409 Guard}
+        I -- "Approve Proposal" --> J[Retest Attack Cases]
+        I -- "Approve Proposal" --> K[Benign Utility Suite<br/>100% Utility Retention]
+        J & K --> L[Frontier Delta Verified<br/>0.0% Over-Refusal]
+        L --> M[Export SARIF 2.1.0 & CI Gate]
+    end
+
+    subgraph RUNTIME ["⚡ Runtime Prevention (raven-guard SDK)"]
+        direction TB
+        L -- "Deploy Policy" --> N[(raven-policy.yaml)]
+        N --> O[PolicyGateway Engine]
+        P[Production User Request] --> Q[Agent / MCP Server]
+        Q --> R{raven-guard Interceptor<br/>@gateway.protect}
+        R -- "Within Policy Bounds" --> S[Execute Tool Function]
+        R -- "Policy Violation / Injection" --> T[Fail-Closed Deny & Audit Log]
+    end
+
+    DISCOVERY --> HUMAN_GATE
+    HUMAN_GATE --> RUNTIME
 ```
 
 ---
@@ -116,48 +139,68 @@ Every test case in the RAVEN catalog is versioned and cross-referenced with mode
 
 RAVEN can run directly inside your CI/CD pipelines as an automated security regression gate.
 
-### 1. GitHub Action (`.github/actions/raven-security-scan`)
+### 1. 1-Line GitHub Action Integration (`uses: raven-security/raven-security-scan@v1`)
 
 Add RAVEN to your GitHub workflow (`.github/workflows/security.yml`):
 
 ```yaml
-name: "AI Security Regression Gate"
-on: [pull_request, push]
+name: "RAVEN AI Security Gate"
+on:
+  pull_request:
+    branches: [ "main" ]
 
 jobs:
-  raven-scan:
+  security-gate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
     steps:
       - uses: actions/checkout@v4
 
+      # 1-Line RAVEN Security Gate
       - name: Run RAVEN Security Scan
-        uses: ./.github/actions/raven-security-scan
+        uses: raven-security/raven-security-scan@v1
         with:
-          target: "shophelper-local"
-          fail_on: "high"
-          sarif_file: "raven-results.sarif"
-          summary_file: "raven-summary.md"
+          config-file: "raven.yaml"
+          fail-on: "high"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          comment-on-pr: "true"
 
       - name: Upload SARIF to GitHub Code Scanning
-        uses: github/codeql-action/upload-sarif@v3
         if: always()
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "raven-results.sarif"
 ```
 
-### 2. Standalone CLI Runner (`raven-test`)
+### 2. Standalone Developer CLI (`raven-test`)
 
-Run local evaluations or regression suites directly in your terminal:
+Install the CLI directly from PyPI:
 
 ```bash
-# Execute evaluation suite against a target
-uv run --directory workers/evaluator raven-test run --target shophelper-local --fail-on high
+pip install raven-test
+```
 
-# Run only promoted regression tests
-uv run --directory workers/evaluator raven-test run-regression --target shophelper-local
+Initialize your project and run scans directly from your terminal:
 
-# Export SARIF directly for local inspection
-uv run --directory workers/evaluator raven-test run --target shophelper-local --output sarif > report.sarif
+```bash
+# 1. Interactive setup: Scaffolds a starter raven.yaml with local port auto-detection
+raven-test init
+
+# 2. Pre-flight verification: Tests connectivity & profiles target without executing attacks
+raven-test run --dry-run
+
+# 3. Execute full regression gate against local bot or remote endpoint
+raven-test run --config raven.yaml --fail-on high
+
+# 4. Replay only promoted active regression cases
+raven-test run --regression-only
+
+# 5. Export OASIS SARIF 2.1.0 for local security audits
+raven-test run --output sarif > raven-results.sarif
 ```
 
 The CLI renders an interactive **ASCII/Unicode Frontier Security Scorecard** and colorized diff proposals for detected breaches:
@@ -173,6 +216,51 @@ The CLI renders an interactive **ASCII/Unicode Frontier Security Scorecard** and
 │ Severity Gate (>= HIGH)      │ [FAIL]       │ [PASS]      │ REMEDIATED │
 └──────────────────────────────┴──────────────┴─────────────┴────────────┘
 ```
+
+---
+
+## 🔌 Model Context Protocol (MCP) Security Scanning
+
+RAVEN natively evaluates **Model Context Protocol (MCP)** tool servers and SSE endpoints against prompt injection, unconstrained tool calling, and parameter poisoning.
+
+### Run MCP Evaluation via CLI
+
+```bash
+# Evaluate a live MCP SSE server endpoint
+raven-test run --target mcp://localhost:8000/sse --categories tool_misuse
+```
+
+### Declarative MCP Configuration (`raven.yaml`)
+
+```yaml
+version: "1"
+target:
+  id: "internal-tools-mcp"
+  adapter: "mcp"
+  url: "mcp://localhost:8000/sse"
+  allow_local_dev: true
+  headers:
+    X-Raven-Scan-Consent: "true"
+  timeout_seconds: 10.0
+
+fail_on: "high"
+
+categories:
+  - "tool_misuse"
+
+budget:
+  max_cases: 5
+```
+
+```bash
+# Run the MCP security scan
+raven-test run --config raven.yaml
+```
+
+When an unconstrained MCP tool call (such as a database delete or unverified refund) is detected, RAVEN:
+1. Emits an OASIS SARIF 2.1.0 finding targeting the MCP tool definition.
+2. Compiles a fail-closed runtime policy in `raven-policy.yaml`.
+3. Validates that benign MCP tool calls retain 100% utility.
 
 ---
 

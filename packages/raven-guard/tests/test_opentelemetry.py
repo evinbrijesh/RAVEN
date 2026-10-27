@@ -6,7 +6,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 from opentelemetry.trace import StatusCode
-
 from raven_guard import PolicyGateway, SecurityContext
 from raven_guard.integrations.opentelemetry import (
     OpenTelemetrySecurityListener,

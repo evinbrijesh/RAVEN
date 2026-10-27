@@ -6,7 +6,7 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("raven_guard.security")
@@ -48,7 +48,7 @@ class SecurityAuditEvent:
     policy_source: str = "gateway_default"
     metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+        default_factory=lambda: datetime.now(UTC).isoformat()
     )
 
     def to_dict(self) -> dict[str, Any]:

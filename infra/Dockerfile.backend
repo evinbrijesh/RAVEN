@@ -39,6 +39,12 @@ RUN uv sync --directory apps/api --no-dev && \
 RUN chmod +x /app/start-backend.sh
 ENV PATH="/app/.venv/bin:${PATH}"
 
+# Create non-root system user and configure persistent data volume permissions
+RUN groupadd -r raven && useradd -r -g raven -d /app -s /sbin/nologin raven && \
+    mkdir -p /data && chown -R raven:raven /data /app
+
+USER raven
+
 # Default port
 EXPOSE 8000
 

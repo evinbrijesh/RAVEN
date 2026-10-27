@@ -8,7 +8,6 @@ import json
 import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
-
 from raven_guard import (
     PolicyGateway,
     SecurityContext,

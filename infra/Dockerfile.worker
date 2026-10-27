@@ -41,6 +41,10 @@ RUN uv sync --directory workers/evaluator --no-dev
 ENV PATH="/app/.venv/bin:${PATH}"
 WORKDIR /app/workers/evaluator
 
-# Runs as root for the hackathon profile (shared SQLite volume ownership);
-# drop privileges for production.
+# Create non-root system user and configure persistent data volume permissions
+RUN groupadd -r raven && useradd -r -g raven -d /app -s /sbin/nologin raven && \
+    mkdir -p /data && chown -R raven:raven /data /app
+
+USER raven
+
 CMD ["python", "-m", "evaluator.worker"]

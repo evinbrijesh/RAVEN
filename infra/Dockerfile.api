@@ -37,7 +37,11 @@ RUN uv sync --directory apps/api --no-dev
 ENV PATH="/app/.venv/bin:${PATH}"
 WORKDIR /app/apps/api
 
+# Create non-root system user and configure persistent data volume permissions
+RUN groupadd -r raven && useradd -r -g raven -d /app -s /sbin/nologin raven && \
+    mkdir -p /data && chown -R raven:raven /data /app
+
+USER raven
+
 EXPOSE 8000
-# Runs as root for the hackathon profile so the shared SQLite volume is
-# writable without pre-provisioned ownership; drop privileges for production.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

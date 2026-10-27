@@ -6,7 +6,7 @@ import functools
 import inspect
 import re
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -488,7 +488,7 @@ class PolicyGateway:
         """Records an authorization decision in the in-memory audit ledger and emits telemetry."""
         ctx_obj = SecurityContext.from_any(context) if context else None
         entry = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "tool": tool,
             "arguments": arguments,
             "allowed": decision.allowed,
