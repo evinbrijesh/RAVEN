@@ -107,6 +107,69 @@ def get_proposal(
         raise _http_error(exc) from exc
 
 
+@router.post("/{scan_id}/cancel")
+def cancel_scan(
+    scan_id: str,
+    repos: Repositories = Depends(get_repositories),
+) -> dict[str, str]:
+    """Cancel an active or queued scan, transitioning to failed_partial."""
+    from app.domain.entities import ScanEvent, utc_now
+    from app.domain.enums import EventKind, ScanStatus
+    from app.domain.errors import NotFoundError
+
+    scan = repos.scans.get(scan_id)
+    if scan is None:
+        raise _http_error(NotFoundError(f"Scan '{scan_id}' not found."))
+
+    terminal_statuses = {
+        ScanStatus.COMPLETED,
+        ScanStatus.COMPLETED_WITHOUT_RETEST,
+        ScanStatus.COMPLETED_WITH_LIMITATIONS,
+        ScanStatus.FAILED_PARTIAL,
+        ScanStatus.FAILED_FATAL,
+        ScanStatus.INCONCLUSIVE,
+    }
+    if scan.status in terminal_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "CONFLICT",
+                "message": f"Scan '{scan_id}' is already in terminal state '{scan.status.value}' and cannot be cancelled.",
+            },
+        )
+
+    # 1. Update scan status to failed_partial
+    repos.scans.update_status(scan_id, ScanStatus.FAILED_PARTIAL)
+
+    # 2. Append SCAN_FAILED event
+    repos.events.append(
+        ScanEvent(
+            scan_id=scan_id,
+            kind=EventKind.SCAN_FAILED,
+            payload={
+                "status": "failed_partial",
+                "reason": "user_cancelled",
+                "message": "Scan cancelled by user",
+            },
+            created_at=utc_now(),
+        )
+    )
+
+    # 3. Cancel any pending or running job in queue
+    now_iso = utc_now().isoformat()
+    repos.db.execute(
+        "UPDATE jobs SET status = 'failed', error = 'Cancelled by user', updated_at = ?"
+        " WHERE payload_json LIKE ? AND status IN ('queued', 'running')",
+        (now_iso, f'%"{scan_id}"%'),
+    )
+
+    return {
+        "scan_id": scan_id,
+        "status": ScanStatus.FAILED_PARTIAL.value,
+        "message": "Scan cancelled successfully",
+    }
+
+
 @router.get("/{scan_id}/artifacts/{artifact_id}/verify")
 def verify_artifact(
     scan_id: str,

@@ -310,6 +310,16 @@ def create_raven_graph(engine: ScanEngine, checkpointer: BaseCheckpointSaver | N
 
         attack_results = []
         for case in cases_to_run:
+            # Check for mid-run cancellation
+            curr_scan = engine._repos.scans.get(scan_id)
+            if curr_scan and curr_scan.status in (ScanStatus.FAILED_PARTIAL, ScanStatus.FAILED_FATAL):
+                logger.warning("Scan %s cancelled during attack execution", scan_id)
+                return {
+                    "attack_results": attack_results,
+                    "status": "failed_partial",
+                    "phase": "cancelled",
+                }
+
             if case.id in before_runs_by_case:
                 r = before_runs_by_case[case.id]
                 attack_results.append({

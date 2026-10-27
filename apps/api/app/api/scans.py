@@ -6,6 +6,7 @@ Canonical implementation lives in `app.api.endpoints.scans`.
 from app.api.endpoints.scans import (
     _http_error,
     approve_hardening,
+    cancel_scan,
     create_scan,
     get_proposal,
     get_scan,
@@ -17,6 +18,7 @@ from app.api.endpoints.scans import (
 __all__ = [
     "_http_error",
     "approve_hardening",
+    "cancel_scan",
     "create_scan",
     "get_proposal",
     "get_scan",
