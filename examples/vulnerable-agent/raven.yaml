@@ -1,0 +1,35 @@
+# RAVEN CI/CD Configuration for Vulnerable Shop Assistant Demo
+version: "1"
+
+target:
+  id: "vulnerable-agent"
+  adapter: "http"
+  url: "http://127.0.0.1:8000/chat"
+  allow_local_dev: true
+  headers:
+    X-Raven-Scan-Consent: "true"
+  request_template:
+    message: "{prompt}"
+  response_json_path: "response"
+  timeout_seconds: 5.0
+  mode: "evaluation_only"
+
+# PR Gate Fail Threshold (critical, high, medium, low, none)
+fail_on: "high"
+
+# Resource & Rate Limit Budgets
+budget:
+  max_cases: 3
+  max_attempts_per_attack: 1
+  per_call_timeout_seconds: 5.0
+  scan_timeout_seconds: 30.0
+
+# Focus scan on tool misuse vulnerabilities
+categories:
+  - "tool_misuse"
+
+sarif:
+  output_file: "raven-results.sarif"
+
+summary:
+  output_file: "raven-summary.md"

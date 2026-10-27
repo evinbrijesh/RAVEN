@@ -9,6 +9,7 @@ Enables RAVEN to evaluate live HTTP endpoints while strictly enforcing:
 from __future__ import annotations
 
 import json
+import os
 from typing import Any
 
 import httpx
@@ -49,7 +50,11 @@ class HttpTargetAdapter(TargetAdapter):
         self.mode = mode
 
         # Step 0: Pre-flight security verification
-        validate_target_url(self.endpoint_url, allow_local_in_dev=allow_local_dev)
+        allow_local = (
+            allow_local_dev
+            or os.environ.get("RAVEN_ALLOW_LOCAL_TARGETS", "").lower() in ("true", "1", "yes")
+        )
+        validate_target_url(self.endpoint_url, allow_local_in_dev=allow_local)
         assert_consent_header(self.headers)
 
         self._temporary_prompt_patch: str | None = None
@@ -90,16 +95,25 @@ class HttpTargetAdapter(TargetAdapter):
 
         # Extract reply text from path
         reply_text = ""
+        tool_calls: list[dict[str, Any]] = []
+        blocked = False
+        policy_reason = None
+
         if isinstance(data, dict):
             reply_text = str(data.get(self.response_json_path, data.get("message", json.dumps(data))))
+            raw_tool_calls = data.get("tool_calls")
+            if isinstance(raw_tool_calls, list):
+                tool_calls = raw_tool_calls
+            blocked = bool(data.get("blocked_by_policy", False))
+            policy_reason = data.get("policy_reason")
         else:
             reply_text = str(data)
 
         return TargetResponse(
-            scan_id=request.scan_id,
-            run_id=request.run_id,
             message=reply_text,
-            tool_calls=[],
+            tool_calls=tool_calls,
+            blocked_by_policy=blocked,
+            policy_reason=policy_reason,
         )
 
     async def reset(self) -> None:

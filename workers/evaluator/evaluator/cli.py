@@ -696,6 +696,11 @@ async def run_cli(args: argparse.Namespace) -> int:
         timeout_s = (config.target.timeout_seconds if config and config.target else None) or 30.0
         mode = (config.target.mode if config and config.target else None) or "evaluation_only"
 
+        allow_local = (
+            (config.target.allow_local_dev if config and config.target else False)
+            or os.environ.get("RAVEN_ALLOW_LOCAL_TARGETS", "").lower() in ("true", "1", "yes")
+        )
+
         target = HttpTargetAdapter(
             endpoint_url=endpoint,
             headers=headers,
@@ -703,6 +708,7 @@ async def run_cli(args: argparse.Namespace) -> int:
             response_json_path=resp_path,
             timeout_seconds=timeout_s,
             mode=mode,
+            allow_local_dev=allow_local,
         )
     elif target_id == "shophelper-local" or target_adapter == "shophelper-local":
         target = ShopHelperLocalAdapter()

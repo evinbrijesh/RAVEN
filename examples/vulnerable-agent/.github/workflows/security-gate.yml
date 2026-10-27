@@ -1,0 +1,50 @@
+name: "RAVEN Security Gate"
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  security-gate:
+    name: "Autonomous Security Regression Gate"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Agent Dependencies
+        run: |
+          pip install fastapi uvicorn httpx pydantic
+
+      - name: Start Vulnerable Agent in Background
+        run: |
+          cd examples/vulnerable-agent
+          uvicorn agent:app --host 127.0.0.1 --port 8000 &
+          sleep 2
+          curl --retry 5 --retry-connrefused http://127.0.0.1:8000/health
+
+      - name: Run RAVEN Security Scan
+        uses: ./actions/raven-security-scan
+        with:
+          config-file: "examples/vulnerable-agent/raven.yaml"
+          target-url: "http://127.0.0.1:8000/chat"
+          fail-on: "high"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          comment-on-pr: "true"
+          sarif-file: "raven-results.sarif"
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: "raven-results.sarif"

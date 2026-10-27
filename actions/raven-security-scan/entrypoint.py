@@ -208,10 +208,29 @@ async def run_action(args: argparse.Namespace) -> int:
     # 4. Initialize target
     if target_id.startswith(("http://", "https://")):
         from evaluator.targets.http_adapter import HttpTargetAdapter
+
         headers = {"X-Raven-Scan-Consent": "true"}
         if config and config.target and config.target.headers:
             headers.update(config.target.headers)
-        target = HttpTargetAdapter(endpoint_url=target_id, headers=headers)
+
+        allow_local = (
+            (config.target.allow_local_dev if config and config.target else False)
+            or os.environ.get("RAVEN_ALLOW_LOCAL_TARGETS", "").lower() in ("true", "1", "yes")
+        )
+        req_template = (config.target.request_template if config and config.target else None) or {"message": "{prompt}"}
+        resp_path = (config.target.response_json_path if config and config.target else None) or "response"
+        timeout_s = (config.target.timeout_seconds if config and config.target else None) or 30.0
+        mode = (config.target.mode if config and config.target else None) or "evaluation_only"
+
+        target = HttpTargetAdapter(
+            endpoint_url=target_id,
+            headers=headers,
+            request_template=req_template,
+            response_json_path=resp_path,
+            timeout_seconds=timeout_s,
+            mode=mode,
+            allow_local_dev=allow_local,
+        )
     else:
         target = ShopHelperLocalAdapter()
 

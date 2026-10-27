@@ -43,6 +43,7 @@ class TargetConfig(BaseModel):
     request_template: dict[str, Any] | None = None
     response_json_path: str = "response"
     headers: dict[str, str] = Field(default_factory=dict)
+    allow_local_dev: bool = False
 
     @property
     def resolved_url(self) -> str | None:
