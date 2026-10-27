@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 
 from app.dependencies import get_repositories
@@ -34,6 +34,7 @@ async def stream_events(
     scan_id: str,
     request: Request,
     last_event_id: int | None = None,
+    poll_interval: float = Query(default=0.4, ge=0.01, le=5.0),
     repos: Repositories = Depends(get_repositories),
 ) -> StreamingResponse:
     if repos.scans.get(scan_id) is None:
@@ -56,7 +57,9 @@ async def stream_events(
             resume_from_id = 0
 
     async def generator():
+        yield ": ping\n\n"
         curr_event_id = resume_from_id
+        interval = poll_interval if poll_interval is not None else POLL_INTERVAL_SECONDS
         while True:
             if await request.is_disconnected():
                 break
@@ -74,7 +77,7 @@ async def stream_events(
                     f"event: stream_end\ndata: {json.dumps({'status': scan.status.value})}\n\n"
                 )
                 break
-            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            await asyncio.sleep(interval)
 
     return StreamingResponse(
         generator(),

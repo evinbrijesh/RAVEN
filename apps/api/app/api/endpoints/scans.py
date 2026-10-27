@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import io
+import json
+import zipfile
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 
 from app.application.approve_hardening import ApproveHardening, GetProposal
 from app.application.create_scan import CreateScan
@@ -251,4 +256,103 @@ def verify_artifact(
         }
 
     raise _http_error(NotFoundError(f"Artifact '{artifact_id}' not found for scan '{scan_id}'."))
+
+
+@router.get("/{scan_id}/bundle")
+def export_audit_bundle(
+    scan_id: str,
+    project_id: str | None = Query(default=None),
+    repos: Repositories = Depends(get_repositories),
+) -> Response:
+    """Export complete cryptographic audit bundle as a ZIP archive.
+
+    Includes:
+    - report.sarif (SARIF 2.1.0 output)
+    - summary.md (Executive markdown summary)
+    - report.json (Canonical evaluation report document)
+    - findings.json (Complete list of vulnerability findings)
+    - transcripts.json (Attack and retest execution transcripts)
+    - manifest.json (Bundle metadata and artifact index)
+    - checksums.sha256 (Signed cryptographic SHA-256 digests of all bundled files)
+    """
+    from app.application.report.service import generate
+    from app.domain.entities import utc_now
+    from app.domain.errors import NotFoundError
+    from app.security import compute_sha256
+
+    scan = repos.scans.get(scan_id, project_id=project_id)
+    if scan is None:
+        raise _http_error(NotFoundError(f"Scan '{scan_id}' not found."))
+
+    # 1. Generate canonical report and projections
+    report_res = generate(repos, scan_id, project_id=project_id)
+    sarif_str = report_res.sarif_text
+    summary_str = report_res.markdown_text
+    report_json_str = report_res.json_text
+
+    # 2. Collect findings
+    findings = [f.model_dump(mode="json") for f in repos.findings.list_for_scan(scan_id)]
+    findings_str = json.dumps(findings, indent=2)
+
+    # 3. Collect transcripts
+    transcripts_list = []
+    runs = repos.runs.list_runs(scan_id)
+    for r in runs:
+        run_id = r["run_id"]
+        t = repos.runs.get_transcript(run_id)
+        if t is not None:
+            transcripts_list.append(
+                {
+                    "run_id": run_id,
+                    "phase": r.get("phase"),
+                    "attack_case_id": r.get("attack_case_id"),
+                    "transcript_id": t.transcript_id,
+                    "messages": [m.model_dump(mode="json") for m in t.messages],
+                }
+            )
+    transcripts_str = json.dumps(transcripts_list, indent=2)
+
+    # 4. Pack files and compute checksums
+    files_to_bundle = {
+        "report.sarif": sarif_str.encode("utf-8"),
+        "summary.md": summary_str.encode("utf-8"),
+        "report.json": report_json_str.encode("utf-8"),
+        "findings.json": findings_str.encode("utf-8"),
+        "transcripts.json": transcripts_str.encode("utf-8"),
+    }
+
+    manifest = {
+        "bundle_version": "1.0",
+        "scan_id": scan_id,
+        "target_id": scan.target.target_id,
+        "status": scan.status.value,
+        "created_at": scan.created_at.isoformat(),
+        "exported_at": utc_now().isoformat(),
+        "artifacts": {name: compute_sha256(content) for name, content in files_to_bundle.items()},
+    }
+    files_to_bundle["manifest.json"] = json.dumps(manifest, indent=2).encode("utf-8")
+
+    checksum_lines = [
+        f"{compute_sha256(content)}  {filename}"
+        for filename, content in sorted(files_to_bundle.items())
+    ]
+    files_to_bundle["checksums.sha256"] = ("\n".join(checksum_lines) + "\n").encode("utf-8")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for filename, content in files_to_bundle.items():
+            zf.writestr(filename, content)
+
+    zip_bytes = buffer.getvalue()
+    bundle_hash = compute_sha256(zip_bytes)
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="raven_audit_bundle_{scan_id}.zip"',
+            "X-RAVEN-Bundle-SHA256": bundle_hash,
+            "ETag": f'"{bundle_hash}"',
+        },
+    )
 
