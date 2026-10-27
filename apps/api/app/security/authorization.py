@@ -10,7 +10,7 @@ from __future__ import annotations
 from app.domain.errors import RavenError, TargetNotAllowed
 
 # Built-in target allowlist (blueprint §8 control 1).
-TARGET_ALLOWLIST: frozenset[str] = frozenset({"shophelper-local"})
+TARGET_ALLOWLIST: frozenset[str] = frozenset({"shophelper-local", "mcp-local"})
 
 
 def assert_target_allowed(target_id: str) -> None:
@@ -20,8 +20,10 @@ def assert_target_allowed(target_id: str) -> None:
         from app.security.ssrf import validate_target_url
         validate_target_url(target_id)
         return
+    if target_id.startswith(("mcp://", "stdio://")):
+        return
     raise TargetNotAllowed(
-        f"Target '{target_id}' is not allowed. Must be 'shophelper-local' or a valid public HTTP(S) endpoint.",
+        f"Target '{target_id}' is not allowed. Must be 'shophelper-local', 'mcp-local', or a valid public HTTP(S) / MCP endpoint.",
         details={"allowed": sorted(TARGET_ALLOWLIST)},
     )
 
@@ -36,4 +38,4 @@ def is_target_allowed(target_id: str) -> bool:
             return True
         except (RavenError, ValueError, OSError):
             return False
-    return False
+    return bool(target_id.startswith(("mcp://", "stdio://")))

@@ -52,7 +52,24 @@ def build_target(scan: Scan, fixtures_path: str | None = None) -> TargetAdapter:
             mode=getattr(target, "mode", "evaluation_only"),
         )
 
+    # Mode 3: Model Context Protocol (MCP) Server
+    if target.kind == "mcp" or target.target_id.startswith(("mcp://", "stdio://")) or target.target_id == "mcp-local":
+        from evaluator.targets.mcp_adapter import McpTargetAdapter
+
+        transport = "in_process"
+        command = None
+        if target.target_id.startswith("stdio://"):
+            transport = "stdio"
+            command = target.target_id.replace("stdio://", "").split()
+
+        return McpTargetAdapter(
+            target_id=target.target_id,
+            transport=transport,
+            command=command,
+            endpoint_url=target.endpoint_url,
+        )
+
     raise TargetNotAllowed(
         f"Unsupported target '{target.target_id}' with kind '{target.kind}'.",
-        details={"allowed_targets": ["shophelper-local", "http://*", "https://*"]},
+        details={"allowed_targets": ["shophelper-local", "http://*", "https://*", "mcp://*", "stdio://*", "mcp-local"]},
     )

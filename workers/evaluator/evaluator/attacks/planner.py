@@ -26,8 +26,15 @@ def catalog_dir() -> Path:
     return Path(__file__).resolve().parents[4] / "packages" / "attack-catalog"
 
 
-def load_attack_cases(categories: list[str] | None = None, limit: int | None = None) -> list[AttackCase]:
-    path = catalog_dir() / "attacks" / "attacks-v1.json"
+def load_attack_cases(
+    categories: list[str] | None = None,
+    limit: int | None = None,
+    version: str | None = None,
+) -> list[AttackCase]:
+    cat_version = version or os.environ.get("RAVEN_ATTACK_CATALOG_VERSION", "v1")
+    path = catalog_dir() / "attacks" / f"attacks-{cat_version}.json"
+    if not path.exists():
+        path = catalog_dir() / "attacks" / "attacks-v1.json"
     if not path.exists():
         raise CatalogMissing(f"Attack catalog not found at {path}")
     data = json.loads(path.read_text(encoding="utf-8"))
