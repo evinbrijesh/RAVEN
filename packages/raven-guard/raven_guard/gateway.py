@@ -7,7 +7,7 @@ import inspect
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Coroutine
+from typing import Any, Callable
 
 from raven_guard.context import get_current_context
 from raven_guard.errors import (
@@ -17,7 +17,12 @@ from raven_guard.errors import (
 )
 from raven_guard.loader import find_default_policy, load_policy
 from raven_guard.models import Decision, PolicyDocument, SecurityContext, ToolPolicy
-
+from raven_guard.telemetry import (
+    SecurityAuditEvent,
+    TelemetryListener,
+    emit_security_event,
+    register_telemetry_listener,
+)
 
 ConditionValidator = Callable[[dict[str, Any], SecurityContext, ToolPolicy], tuple[bool, str]]
 
@@ -82,6 +87,10 @@ class PolicyGateway:
     def register_condition(self, name: str, validator: ConditionValidator) -> None:
         """Registers a custom condition evaluator."""
         self._custom_conditions[name] = validator
+
+    def add_telemetry_listener(self, listener: TelemetryListener) -> None:
+        """Registers a listener for structured security audit events."""
+        register_telemetry_listener(listener)
 
     def authorize(
         self,
@@ -167,6 +176,38 @@ class PolicyGateway:
                 self._record(tool, args, decision, ctx)
                 return decision
 
+        # Cross-field context claims validation (IDOR and Confused Deputy protection)
+        if policy.context_claims:
+            for arg_name, claim_key in policy.context_claims.items():
+                if arg_name in args:
+                    claim_val = ctx.get_claim(claim_key)
+                    if claim_val is None:
+                        decision = Decision(
+                            allowed=False,
+                            reason=f"missing_context_claim:{claim_key}",
+                            tool=tool,
+                            policy_source="candidate",
+                            violations=[f"missing_context_claim:{claim_key}"],
+                        )
+                        self._record(tool, args, decision, ctx)
+                        return decision
+                    if str(args[arg_name]) != str(claim_val):
+                        decision = Decision(
+                            allowed=False,
+                            reason=f"claim_mismatch:{arg_name}!={claim_key}",
+                            tool=tool,
+                            policy_source="candidate",
+                            violations=[f"claim_mismatch:{arg_name}!={claim_key}"],
+                            metadata={
+                                "argument": arg_name,
+                                "claim": claim_key,
+                                "expected": str(claim_val),
+                                "received": str(args[arg_name]),
+                            },
+                        )
+                        self._record(tool, args, decision, ctx)
+                        return decision
+
         # Parameter rules validation (bounds, regex, choices)
         param_violations = self._check_parameter_rules(policy.parameter_rules, args)
         if param_violations:
@@ -236,6 +277,28 @@ class PolicyGateway:
         policy: ToolPolicy,
     ) -> tuple[bool, str]:
         """Evaluates a single condition string."""
+        # Claims match expressions: e.g. "claims_match:customer_id==user_id"
+        if condition.startswith("claims_match:") or condition.startswith("claim_match:"):
+            expr = condition.split(":", 1)[1]
+            if "==" in expr:
+                left, right = [s.strip() for s in expr.split("==", 1)]
+                if left in arguments:
+                    arg_name, claim_name = left, right
+                    arg_val = arguments[left]
+                    claim_val = context.get_claim(right)
+                elif right in arguments:
+                    arg_name, claim_name = right, left
+                    arg_val = arguments[right]
+                    claim_val = context.get_claim(left)
+                else:
+                    return True, "ok"
+
+                if claim_val is None:
+                    return False, f"missing_context_claim:{claim_name}"
+                if str(arg_val) != str(claim_val):
+                    return False, f"claim_mismatch:{arg_name}!={claim_name}"
+                return True, "ok"
+
         # Built-in condition checks matching RAVEN catalog & ADR requirement 8
         if condition == "verified_order_id_present":
             order_id = arguments.get("order_id") or context.order_id
@@ -267,9 +330,24 @@ class PolicyGateway:
             return True, "ok"
 
         if condition == "user_id_matches_context":
-            arg_uid = arguments.get("user_id")
-            if arg_uid and context.user_id and str(arg_uid) != str(context.user_id):
+            arg_uid = arguments.get("user_id") or arguments.get("customer_id")
+            ctx_uid = context.get_claim("user_id") or context.user_id
+            if arg_uid and ctx_uid and str(arg_uid) != str(ctx_uid):
                 return False, "user_id_mismatch"
+            return True, "ok"
+
+        if condition in ("tenant_id_matches_context", "tenant_matches_context"):
+            arg_tid = arguments.get("tenant_id")
+            ctx_tid = context.get_claim("tenant_id")
+            if arg_tid and ctx_tid and str(arg_tid) != str(ctx_tid):
+                return False, "tenant_id_mismatch"
+            return True, "ok"
+
+        if condition == "account_id_matches_context":
+            arg_aid = arguments.get("account_id")
+            ctx_aid = context.get_claim("account_id")
+            if arg_aid and ctx_aid and str(arg_aid) != str(ctx_aid):
+                return False, "account_id_mismatch"
             return True, "ok"
 
         # Check custom condition registry
@@ -329,7 +407,8 @@ class PolicyGateway:
         decision: Decision,
         context: SecurityContext | None,
     ) -> None:
-        """Records an authorization decision in the in-memory audit ledger."""
+        """Records an authorization decision in the in-memory audit ledger and emits telemetry."""
+        ctx_obj = SecurityContext.from_any(context) if context else None
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "tool": tool,
@@ -339,15 +418,36 @@ class PolicyGateway:
             "policy_source": decision.policy_source,
             "violations": list(decision.violations),
             "context_summary": {
-                "verified_user": context.verified_user if context else False,
-                "verified_order_id": context.verified_order_id if context else False,
-                "user_id": context.user_id if context else None,
-                "order_id": context.order_id if context else None,
+                "verified_user": ctx_obj.verified_user if ctx_obj else False,
+                "verified_order_id": ctx_obj.verified_order_id if ctx_obj else False,
+                "user_id": ctx_obj.user_id if ctx_obj else None,
+                "order_id": ctx_obj.order_id if ctx_obj else None,
             },
         }
         self.decisions.append(entry)
         if len(self.decisions) > self.audit_log_size:
             self.decisions.pop(0)
+
+        # Emit structured security audit telemetry
+        event_type = "tool_call_authorized" if decision.allowed else "tool_call_blocked"
+        if decision.reason == "high_value_action:approval_required":
+            event_type = "high_value_action_escalated"
+
+        emit_security_event(
+            SecurityAuditEvent(
+                event_type=event_type,
+                tool=tool,
+                allowed=decision.allowed,
+                reason=decision.reason,
+                violations=list(decision.violations),
+                arguments=dict(arguments),
+                user_id=ctx_obj.user_id if ctx_obj else None,
+                session_id=ctx_obj.session_id if ctx_obj else None,
+                claims_summary=dict(ctx_obj.claims) if ctx_obj else {},
+                policy_source=decision.policy_source,
+                metadata=dict(decision.metadata),
+            )
+        )
 
     def protect(
         self,

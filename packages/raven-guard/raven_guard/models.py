@@ -44,7 +44,34 @@ class SecurityContext:
     roles: list[str] = field(default_factory=list)
     session_id: str | None = None
     user_message: str | None = None
+    claims: dict[str, Any] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def get_claim(self, key: str, default: Any = None) -> Any:
+        """Retrieve a claim from explicit claims, direct attributes, or extra dictionary."""
+        if key in self.claims:
+            return self.claims[key]
+        if hasattr(self, key):
+            val = getattr(self, key)
+            if val is not None:
+                return val
+        if key in self.extra:
+            return self.extra[key]
+        return default
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "verified_user": self.verified_user,
+            "verified_order_id": self.verified_order_id,
+            "user_id": self.user_id,
+            "order_id": self.order_id,
+            "amount": self.amount,
+            "roles": list(self.roles),
+            "session_id": self.session_id,
+            "user_message": self.user_message,
+            "claims": dict(self.claims),
+            "extra": dict(self.extra),
+        }
 
     @classmethod
     def from_any(cls, obj: Any) -> SecurityContext:
@@ -54,21 +81,29 @@ class SecurityContext:
         if isinstance(obj, cls):
             return obj
         if isinstance(obj, dict):
-            extra = {
-                k: v
-                for k, v in obj.items()
-                if k
-                not in (
-                    "verified_user",
-                    "verified_order_id",
-                    "user_id",
-                    "order_id",
-                    "amount",
-                    "roles",
-                    "session_id",
-                    "user_message",
-                )
-            }
+            known_keys = (
+                "verified_user",
+                "verified_order_id",
+                "user_id",
+                "order_id",
+                "amount",
+                "roles",
+                "session_id",
+                "user_message",
+                "claims",
+            )
+            extra = {k: v for k, v in obj.items() if k not in known_keys}
+            claims = dict(obj.get("claims", {})) if isinstance(obj.get("claims"), dict) else {}
+            # Automatically mirror core identifiers into claims if not already present
+            if obj.get("user_id") and "user_id" not in claims:
+                claims["user_id"] = obj["user_id"]
+            if obj.get("order_id") and "order_id" not in claims:
+                claims["order_id"] = obj["order_id"]
+            if obj.get("session_id") and "session_id" not in claims:
+                claims["session_id"] = obj["session_id"]
+            if "tenant_id" in extra and "tenant_id" not in claims:
+                claims["tenant_id"] = extra["tenant_id"]
+
             return cls(
                 verified_user=bool(obj.get("verified_user", False)),
                 verified_order_id=bool(obj.get("verified_order_id", False)),
@@ -78,20 +113,39 @@ class SecurityContext:
                 roles=list(obj.get("roles", [])),
                 session_id=obj.get("session_id"),
                 user_message=obj.get("user_message"),
+                claims=claims,
                 extra=extra,
             )
 
-        # Object with attributes (e.g. ToolContext from evaluator)
+        # Object with attributes (e.g. ToolContext from evaluator or custom class)
+        claims_attr = getattr(obj, "claims", {})
+        claims = dict(claims_attr) if isinstance(claims_attr, dict) else {}
+        uid = getattr(obj, "user_id", None)
+        oid = getattr(obj, "order_id", None)
+        sid = getattr(obj, "session_id", None)
+        if uid and "user_id" not in claims:
+            claims["user_id"] = uid
+        if oid and "order_id" not in claims:
+            claims["order_id"] = oid
+        if sid and "session_id" not in claims:
+            claims["session_id"] = sid
+
+        extra_attr = getattr(obj, "extra", {})
+        extra = dict(extra_attr) if isinstance(extra_attr, dict) else {}
+        if "tenant_id" in extra and "tenant_id" not in claims:
+            claims["tenant_id"] = extra["tenant_id"]
+
         return cls(
             verified_user=bool(getattr(obj, "verified_user", False)),
             verified_order_id=bool(getattr(obj, "verified_order_id", False)),
-            user_id=getattr(obj, "user_id", None),
-            order_id=getattr(obj, "order_id", None),
+            user_id=uid,
+            order_id=oid,
             amount=getattr(obj, "amount", None),
             roles=list(getattr(obj, "roles", [])),
-            session_id=getattr(obj, "session_id", None),
+            session_id=sid,
             user_message=getattr(obj, "user_message", None),
-            extra=getattr(obj, "extra", {}) if isinstance(getattr(obj, "extra", None), dict) else {},
+            claims=claims,
+            extra=extra,
         )
 
 
@@ -105,11 +159,13 @@ class ToolPolicy:
     amount_threshold: float | None = None
     parameter_rules: dict[str, Any] = field(default_factory=dict)
     allowed_roles: list[str] = field(default_factory=list)
+    context_claims: dict[str, str] = field(default_factory=dict)
     on_violation: str = "deny_and_log"
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ToolPolicy:
         threshold = data.get("amount_threshold")
+        claims_mapping = data.get("context_claims", data.get("claims_mapping", {}))
         return cls(
             tool=str(data.get("tool", "")),
             conditions=list(data.get("conditions", [])),
@@ -117,6 +173,7 @@ class ToolPolicy:
             amount_threshold=float(threshold) if threshold is not None else None,
             parameter_rules=dict(data.get("parameter_rules", {})),
             allowed_roles=list(data.get("allowed_roles", [])),
+            context_claims=dict(claims_mapping) if isinstance(claims_mapping, dict) else {},
             on_violation=str(data.get("on_violation", "deny_and_log")),
         )
 

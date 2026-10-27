@@ -14,6 +14,12 @@ from raven_guard.errors import (
     RavenGuardError,
 )
 from raven_guard.gateway import PolicyGateway
+from raven_guard.integrations import (
+    RavenGuardCallbackHandler,
+    RavenGuardToolNode,
+    RavenToolInterceptor,
+    wrap_tool,
+)
 from raven_guard.loader import (
     find_default_policy,
     load_policy,
@@ -25,6 +31,12 @@ from raven_guard.models import (
     PolicyDocument,
     SecurityContext,
     ToolPolicy,
+)
+from raven_guard.telemetry import (
+    SecurityAuditEvent,
+    clear_telemetry_listeners,
+    register_telemetry_listener,
+    unregister_telemetry_listener,
 )
 
 __version__ = "0.1.0"
@@ -48,4 +60,12 @@ __all__ = [
     "load_policy_file",
     "parse_policy_string",
     "find_default_policy",
+    "RavenGuardToolNode",
+    "RavenGuardCallbackHandler",
+    "RavenToolInterceptor",
+    "wrap_tool",
+    "SecurityAuditEvent",
+    "register_telemetry_listener",
+    "unregister_telemetry_listener",
+    "clear_telemetry_listeners",
 ]
