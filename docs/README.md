@@ -19,6 +19,7 @@ RAVEN is an autonomous security regression and remediation assurance system for 
 - [v1.0 Release Notes](./v1.0-RELEASE-NOTES.md) — Comprehensive v1.0 release notes, changelog, architecture highlights, and migration guide.
 - [Post-Hackathon Execution Plan](./POST_HACKATHON_EXECUTION_PLAN.md) — Detailed 30-day post-hackathon execution track and deliverables across reliability, CI/CD, and runtime defense.
 - [Post-Hackathon Strategic Roadmap](./adr/POST_HACKATHON_ROADMAP.md) — Product evolution paths: reliability, developer experience/CI, and runtime policy SDK.
+- [OWASP Coverage Recommendation](./OWASP_COVERAGE_RECOMMENDATION.md) — Strategic roadmap to OWASP-complete coverage profile, capability-aware scan profiles, and multi-phase expansion.
 - [Prompt Specifications](./RAVEN_PROMPTS_SPEC.txt) — Core architectural prompts and system specifications.
 
 ## Repository Implementation Status
