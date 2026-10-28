@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Cpu,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import TopBar from "@/components/ui/TopBar";
 import {
@@ -814,25 +815,42 @@ export default function LiveScanPage() {
                 <div className="flex items-center gap-2 font-mono text-xs text-[var(--accent)]">
                   <ShieldAlert className="h-4 w-4" />
                   <span className="font-semibold uppercase tracking-wider">Human-in-the-Loop Sign-off Required</span>
+                  
+                  {/* Info tooltip hover container */}
+                  <div className="group relative inline-flex items-center ml-1">
+                    <span
+                      tabIndex={0}
+                      role="tooltip"
+                      aria-label="Hardening proposal details"
+                      className="inline-flex items-center justify-center h-4 w-4 rounded-full border border-teal-500/40 bg-teal-950/60 text-[10px] font-mono font-bold text-teal-300 hover:text-teal-100 hover:border-teal-400 cursor-help transition-colors"
+                    >
+                      i
+                    </span>
+                    <div className="pointer-events-none absolute left-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 hidden group-hover:flex group-focus-within:flex flex-col w-72 rounded-md border border-teal-500/40 bg-[#090D13] p-3 text-[11px] font-sans font-normal leading-relaxed text-[var(--text-secondary)] shadow-2xl z-50 animate-fade-in">
+                      <div className="font-mono text-[10px] uppercase font-semibold text-teal-400 mb-1 flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
+                        Hardener Agent Proposal
+                      </div>
+                      <p className="text-[var(--text-primary)]">
+                        Hardener agent drafted 1 system prompt confidentiality rule + 1 refund auth policy guardrail.
+                      </p>
+                      <p className="mt-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-hairline)] pt-1.5">
+                        Human sign-off required: review prompt and policy diffs before authorizing retest.
+                      </p>
+                    </div>
+                  </div>
                 </div>
                 <p className="text-xs text-[var(--text-secondary)]">
-                  Hardener agent drafted 1 system prompt confidentiality rule + 1 refund auth policy guardrail.
+                  Pipeline paused at LangGraph approval gate · Inspect proposed prompt and policy diffs before sign-off.
                 </p>
               </div>
+
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={handleApprove}
-                  disabled={isApproving}
-                  className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all disabled:opacity-60"
-                >
-                  {isApproving ? "Approving..." : "Approve and Retest →"}
-                </button>
                 <Link
                   href={`/scans/${scanId}/hardening`}
-                  className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-xs font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  className="rounded-md bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all inline-flex items-center gap-1.5"
                 >
-                  Inspect Diff
+                  Inspect Diff & Review →
                 </Link>
               </div>
             </div>
