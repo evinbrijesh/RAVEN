@@ -28,6 +28,7 @@ import {
   CategoryChip,
   PartialFailureBanner,
   SpotlightCard,
+  InfoTooltip,
 } from "@/components/ui/primitives";
 import ReconProfileCard from "@/components/scan/ReconProfileCard";
 import ScanRadarPulse, { findingsToBlips, type RadarBlip } from "@/components/scan/ScanRadarPulse";
@@ -147,6 +148,12 @@ const ATTACK_CATEGORY_MAP: Record<string, AttackCategory> = {
   "A-10": "tool_misuse",
   "A-11": "tool_misuse",
   "A-12": "tool_misuse",
+  "A-13": "tool_misuse",
+  "A-14": "tool_misuse",
+  "A-15": "tool_misuse",
+  "A-16": "direct_injection",
+  "A-17": "canary_leakage",
+  "A-18": "sensitive_data",
 };
 
 function parseScanEvent(event: ScanEvent, ts: string): EventEntry {
@@ -249,7 +256,13 @@ function LiveCounters({ counts }: {
   return (
     <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4">
       <p className="mb-3 text-[var(--text-xs)] font-medium font-mono uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
-        <span>Live Telemetry</span>
+        <span className="flex items-center">
+          Live Telemetry
+          <InfoTooltip
+            title="Verdict Classification"
+            content="Automated security evaluation: Confirmed Fail (breach proven), Attack Blocked (target defended), Needs Review (borderline confidence requiring human inspection)."
+          />
+        </span>
         <span className="flex h-1.5 w-1.5 rounded-full bg-teal-400 animate-ping" />
       </p>
       <dl className="space-y-2 font-mono">
@@ -271,7 +284,13 @@ function BudgetMeter({ used, total }: { used: number; total: number }) {
   return (
     <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4">
       <div className="mb-2 flex items-center justify-between font-mono">
-        <p className="text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)]">Model Calls</p>
+        <p className="text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)] flex items-center">
+          Model Calls
+          <InfoTooltip
+            title="Execution Budget"
+            content="Enforces strict session-level limits on LLM calls to prevent infinite recursion, agent loop traps, and unbounded token consumption."
+          />
+        </p>
         <span className={`text-[11px] ${warn ? "text-amber-400" : "text-[var(--text-secondary)]"}`}>
           {used} / {total} calls
         </span>
@@ -584,7 +603,9 @@ export default function LiveScanPage() {
       const review = Array.from(verdictsFromEvents.values()).filter(
         (l) => l === "needs_review"
       ).length;
-      const total = Math.max(12, verdictsFromEvents.size);
+      const total = scanView?.counts?.total && scanView.counts.total > 0
+        ? scanView.counts.total
+        : Math.max(18, verdictsFromEvents.size);
       const notEval = Math.max(0, total - verdictsFromEvents.size);
       return { total, failures, blocked, review, notEval };
     }
@@ -602,10 +623,11 @@ export default function LiveScanPage() {
     // Default from findings
     const confirmedFails = findings.filter((f) => f.label === "confirmed_failure" || f.label === "likely_failure").length;
     const reviewFails = findings.filter((f) => f.label === "needs_review").length;
+    const totalCases = scanView?.counts?.total && scanView.counts.total > 0 ? scanView.counts.total : 18;
     return {
-      total: 12,
+      total: totalCases,
       failures: confirmedFails,
-      blocked: Math.max(0, 12 - confirmedFails - reviewFails),
+      blocked: Math.max(0, totalCases - confirmedFails - reviewFails),
       review: reviewFails,
       notEval: 0,
     };
@@ -677,6 +699,7 @@ export default function LiveScanPage() {
       <TopBar
         breadcrumbs={[{ label: "Scans", href: "/scans" }, { label: scanId }]}
         scanStatus={currentStatus}
+        targetId={scanView?.target_id}
       />
 
       <main className="flex-1 px-4 sm:px-6 py-6 space-y-6 max-w-7xl w-full mx-auto">
@@ -771,7 +794,7 @@ export default function LiveScanPage() {
 
         {/* Target Recon Profile Inspector */}
         <section aria-label="Target recon profile">
-          <ReconProfileCard profile={profile} targetId="shophelper-local" />
+          <ReconProfileCard profile={profile} targetId={scanView?.target_id || "shophelper-local"} />
         </section>
 
         {/* Live Constellation Hero Card */}
@@ -782,8 +805,13 @@ export default function LiveScanPage() {
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Cpu className="h-4 w-4 text-[var(--accent)]" />
-              <p className="text-[var(--text-xs)] font-mono font-medium uppercase tracking-wider text-[var(--text-primary)]">
+              <p className="text-[var(--text-xs)] font-mono font-medium uppercase tracking-wider text-[var(--text-primary)] flex items-center">
                 Live State Machine Circuit
+                <InfoTooltip
+                  title="State Machine Circuit"
+                  content="Real-time multi-agent orchestrator driven by LangGraph. Monitors state transitions across Recon, Planner, Attacker, Judge, Hardener, and Approval Gate."
+                  footer="Click any active node to inspect internal thought traces and sanitized tool arguments."
+                />
               </p>
             </div>
             <div className="flex items-center gap-2 font-mono text-[11px] text-[var(--text-muted)]">
@@ -800,6 +828,7 @@ export default function LiveScanPage() {
             onNodeClick={(id) => setTraceAgent(traceAgent === id ? null : id)}
             width={820}
             height={280}
+            targetId={scanView?.target_id}
           />
 
           <p className="mt-3 text-center font-mono text-[10px] text-[var(--text-muted)]">
@@ -816,29 +845,11 @@ export default function LiveScanPage() {
                   <ShieldAlert className="h-4 w-4" />
                   <span className="font-semibold uppercase tracking-wider">Human-in-the-Loop Sign-off Required</span>
                   
-                  {/* Info tooltip hover container */}
-                  <div className="group relative inline-flex items-center ml-1">
-                    <span
-                      tabIndex={0}
-                      role="tooltip"
-                      aria-label="Hardening proposal details"
-                      className="inline-flex items-center justify-center h-4 w-4 rounded-full border border-teal-500/40 bg-teal-950/60 text-[10px] font-mono font-bold text-teal-300 hover:text-teal-100 hover:border-teal-400 cursor-help transition-colors"
-                    >
-                      i
-                    </span>
-                    <div className="pointer-events-none absolute left-0 sm:left-1/2 sm:-translate-x-1/2 top-full mt-2 hidden group-hover:flex group-focus-within:flex flex-col w-72 rounded-md border border-teal-500/40 bg-[#090D13] p-3 text-[11px] font-sans font-normal leading-relaxed text-[var(--text-secondary)] shadow-2xl z-50 animate-fade-in">
-                      <div className="font-mono text-[10px] uppercase font-semibold text-teal-400 mb-1 flex items-center gap-1.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
-                        Hardener Agent Proposal
-                      </div>
-                      <p className="text-[var(--text-primary)]">
-                        Hardener agent drafted 1 system prompt confidentiality rule + 1 refund auth policy guardrail.
-                      </p>
-                      <p className="mt-1.5 text-[10px] text-[var(--text-muted)] border-t border-[var(--border-hairline)] pt-1.5">
-                        Human sign-off required: review prompt and policy diffs before authorizing retest.
-                      </p>
-                    </div>
-                  </div>
+                  <InfoTooltip
+                    title="Hardener Agent Proposal"
+                    content="Hardener agent drafted 1 system prompt confidentiality rule + 1 refund auth policy guardrail."
+                    footer="Human sign-off required: review prompt and policy diffs before authorizing retest."
+                  />
                 </div>
                 <p className="text-xs text-[var(--text-secondary)]">
                   Pipeline paused at LangGraph approval gate · Inspect proposed prompt and policy diffs before sign-off.
@@ -909,7 +920,11 @@ export default function LiveScanPage() {
             <div className="border-b border-[var(--border-hairline)] px-4 py-3 flex items-center justify-between bg-[var(--bg-raised)]">
               <p className="text-[var(--text-xs)] font-mono font-medium uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5 text-teal-400" />
-                Live Event Stream
+                <span>Live Event Stream</span>
+                <InfoTooltip
+                  title="Live Telemetry Feed"
+                  content="Real-time Server-Sent Events (SSE) streaming probe injections, deterministic canary checks, semantic judge verdicts, and state machine phase transitions."
+                />
               </p>
               <span className="font-mono text-[10px] text-zinc-500">
                 {eventsList.length} events
@@ -938,7 +953,7 @@ export default function LiveScanPage() {
         {/* Footer actions */}
         <div className="flex items-center justify-between border-t border-[var(--border-hairline)] pt-4 text-xs font-mono">
           <span className="text-[var(--text-muted)]">
-            Target: shophelper-local · Sandboxed evaluation
+            Target: <span className="text-[var(--text-primary)] font-semibold">{scanView?.target_id || "shophelper-local"}</span> · {(!scanView?.target_id || scanView.target_id === "shophelper-local") ? "Sandboxed evaluation" : scanView.target_id.startsWith("mcp://") || scanView.target_id.startsWith("stdio://") ? "MCP Protocol Target" : "Live HTTP Endpoint"}
           </span>
           <div className="flex items-center gap-3">
             <Link

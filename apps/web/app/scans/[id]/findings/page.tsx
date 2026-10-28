@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
-import { LabelChip, CategoryChip, SeverityBadge, Skeleton, SpotlightCard } from "@/components/ui/primitives";
+import { LabelChip, CategoryChip, SeverityBadge, Skeleton, SpotlightCard, InfoTooltip } from "@/components/ui/primitives";
 import WeaknessMap from "@/components/scan/WeaknessMap";
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
@@ -122,8 +122,12 @@ function FindingDrawer({ finding, onClose, scanId }: { finding: Finding; onClose
 
         {/* Deterministic signals */}
         <div>
-          <p className="mb-2 text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-            Deterministic signals
+          <p className="mb-2 text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)] flex items-center">
+            <span>Deterministic signals</span>
+            <InfoTooltip
+              title="Deterministic Checks"
+              content="Zero-shot programmatic evidence evaluation: exact canary disclosures, regex token patterns, and verified API invocation calls."
+            />
           </p>
           <ul className="space-y-1.5">
             {finding.category === "canary_leakage" && (
@@ -163,7 +167,13 @@ function FindingDrawer({ finding, onClose, scanId }: { finding: Finding; onClose
 
         {/* LLM judge result */}
         <div className="rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)] p-3">
-          <p className="mb-1 text-[var(--text-xs)] font-medium text-[var(--text-muted)]">LLM judge result</p>
+          <p className="mb-1 text-[var(--text-xs)] font-medium text-[var(--text-muted)] flex items-center">
+            <span>LLM judge result</span>
+            <InfoTooltip
+              title="Semantic AI Judge"
+              content="Independent model-graded evaluation assessing whether the target fulfilled the adversary's intent while preserving business policies."
+            />
+          </p>
           {finding.label === "needs_review" ? (
             <p className="font-mono text-[10px] text-amber-400">timed out — no structured output returned</p>
           ) : (
@@ -234,7 +244,13 @@ export default function FindingsPage() {
       <main className="flex-1 px-6 py-6" id="findings">
         <div className="mb-6 flex items-end justify-between">
           <div>
-            <h1 className="text-[var(--text-xl)] font-semibold tracking-tight">Findings & Weakness Map</h1>
+            <h1 className="text-[var(--text-xl)] font-semibold tracking-tight flex items-center">
+              <span>Findings &amp; Weakness Map</span>
+              <InfoTooltip
+                title="Target Weakness Architecture"
+                content="Aggregates confirmed vulnerabilities across attack catalog probes, mapping failures to architectural layers: Input Guard, System Prompt, Tool Gateway, and Data Store."
+              />
+            </h1>
             <p className="mt-1 text-[var(--text-sm)] text-[var(--text-secondary)]">
               {FINDINGS.length} cases evaluated · 4 confirmed failures · Pinned to ShopHelper architecture
             </p>

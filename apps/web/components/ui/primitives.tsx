@@ -345,3 +345,6 @@ export function PartialFailureBanner({ message }: { message: string }) {
     </div>
   );
 }
+
+export { default as InfoTooltip } from "./InfoTooltip";
+

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
-import { SpotlightCard, LabelChip, SeverityBadge } from "@/components/ui/primitives";
+import { SpotlightCard, LabelChip, SeverityBadge, InfoTooltip } from "@/components/ui/primitives";
 import { AgentTrace, type TraceStep } from "@/components/ui/AgentConstellation";
 import { approveHardening, getProposal, getScan } from "@/lib/api-client";
 import type { HardeningProposal as HardeningProposalType } from "@/lib/types";
@@ -552,7 +552,12 @@ export default function HardeningPage() {
         <div className="mb-5">
           <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
             <ShieldAlert className="h-3.5 w-3.5 text-[var(--accent)]" />
-            Hardening Proposal · H-001 · Defense-in-Depth
+            <span>Hardening Proposal · H-001 · Defense-in-Depth</span>
+            <InfoTooltip
+              title="Dual-Layer Hardening"
+              content="Applies defense-in-depth: semantic hardening at the system prompt layer plus zero-trust deterministic validation at the PolicyGateway runtime layer."
+              footer="Changes are verified against both adversarial vectors and benign user scenarios before deployment."
+            />
           </div>
           <h1 className="mt-1 text-[var(--text-xl)] font-semibold tracking-tight">
             Review proposed changes before approval
@@ -826,8 +831,12 @@ export default function HardeningPage() {
 
             {/* Findings addressed — one per defense layer */}
             <div className="rounded-[var(--radius-card)] border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-4">
-              <p className="mb-2 text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)]">
-                Addresses
+              <p className="mb-2 text-[var(--text-xs)] font-medium uppercase tracking-wider text-[var(--text-muted)] flex items-center">
+                <span>Addresses</span>
+                <InfoTooltip
+                  title="Vulnerability Mapping"
+                  content="Each proposed remediation maps directly to a confirmed failure: prompt mitigations address semantic attacks, while runtime policy guardrails address unsafe tool invocations."
+                />
               </p>
               <ul className="space-y-1.5 font-mono text-[11px]">
                 <li className="flex items-center gap-2 text-[var(--text-secondary)]">

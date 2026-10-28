@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Radio, Terminal, ShieldAlert, ShieldCheck } from "lucide-react";
+import InfoTooltip from "@/components/ui/InfoTooltip";
 import type { Finding, AttackCategory, Severity } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -152,8 +153,13 @@ export default function ScanRadarPulse({
       <div className="relative flex items-center justify-between border-b border-[var(--border-hairline)] pb-3 mb-4">
         <div className="flex items-center gap-2">
           <Radio className={`h-4 w-4 ${isScanning ? "text-teal-400 animate-pulse" : "text-zinc-500"}`} />
-          <h4 className="text-xs font-mono font-semibold uppercase tracking-wider text-[var(--text-primary)]">
-            Active Vector Radar &amp; Telemetry
+          <h4 className="text-xs font-mono font-semibold uppercase tracking-wider text-[var(--text-primary)] flex items-center">
+            <span>Active Vector Radar &amp; Telemetry</span>
+            <InfoTooltip
+              title="Active Vector Radar"
+              content="Polar HUD plotting attack vectors across quadrants: Direct Injection, Canary Leakage, Sensitive Data, and Tool Misuse. Red blips denote breaches; cyan blips denote blocked attacks."
+              footer="Distance from center indicates detection confidence level (higher = closer to outer perimeter)."
+            />
           </h4>
         </div>
         <div className="flex items-center gap-2 font-mono text-[10px]">

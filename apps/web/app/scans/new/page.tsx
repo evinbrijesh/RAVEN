@@ -17,7 +17,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import TopBar from "@/components/ui/TopBar";
-import { SpotlightCard } from "@/components/ui/primitives";
+import { SpotlightCard, InfoTooltip } from "@/components/ui/primitives";
 import { createScan } from "@/lib/api-client";
 
 /* ─── Sample budget summary data ─────────────────────────────────────────── */
@@ -129,8 +129,12 @@ export default function NewScanPage() {
               <div className="flex items-center justify-between border-b border-[var(--border-hairline)] pb-3">
                 <div className="flex items-center gap-2">
                   <Server className="h-4 w-4 text-[var(--accent)]" />
-                  <p className="text-xs font-mono font-medium uppercase tracking-wider text-[var(--text-primary)]">
-                    Target Environment
+                  <p className="text-xs font-mono font-medium uppercase tracking-wider text-[var(--text-primary)] flex items-center">
+                    <span>Target Environment</span>
+                    <InfoTooltip
+                      title="Target Environment"
+                      content="Choose between the built-in isolated ShopHelper fixture (safe, pre-configured sandbox) or your own custom API endpoint with SSRF protections and consent verification."
+                    />
                   </p>
                 </div>
                 {/* Target Switcher */}
@@ -383,8 +387,12 @@ export default function NewScanPage() {
 
             {/* Switches */}
             <SpotlightCard className="p-5 space-y-3">
-              <p className="text-xs font-medium font-mono uppercase tracking-wider text-[var(--text-muted)]">
-                Runtime Options
+              <p className="text-xs font-medium font-mono uppercase tracking-wider text-[var(--text-muted)] flex items-center">
+                <span>Runtime Options</span>
+                <InfoTooltip
+                  title="Adaptive Probing"
+                  content="Adversarial mutation applies lexical and roleplay variations to uncover model perimeter fragility. Benign utility verifies customer queries are not falsely rejected post-hardening."
+                />
               </p>
               <div className="space-y-3 font-mono text-xs">
                 {[
@@ -414,8 +422,12 @@ export default function NewScanPage() {
             <SpotlightCard className="p-5 space-y-4 border border-teal-500/25">
               <div className="flex items-center gap-2">
                 <ShieldAlert className="h-4 w-4 text-[var(--accent)]" />
-                <p className="text-xs font-mono font-semibold uppercase tracking-wider text-[var(--text-primary)]">
-                  Authorization & Governance
+                <p className="text-xs font-mono font-semibold uppercase tracking-wider text-[var(--text-primary)] flex items-center">
+                  <span>Authorization &amp; Governance</span>
+                  <InfoTooltip
+                    title="Scan Authorization"
+                    content="Strict authorization gates: enforces valid consent headers (X-Raven-Scan-Consent), private IP / metadata endpoint blocking, and immutable audit logging."
+                  />
                 </p>
               </div>
 

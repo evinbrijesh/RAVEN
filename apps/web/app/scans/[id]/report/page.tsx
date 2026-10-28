@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import TopBar from "@/components/ui/TopBar";
-import { LabelChip } from "@/components/ui/primitives";
+import { LabelChip, InfoTooltip } from "@/components/ui/primitives";
 import { ErrorBlock, LoadingBlock } from "@/components/ui/StateViews";
 import {
   ApiRequestError,
@@ -27,16 +27,25 @@ import { ShieldCheck, Lock, CheckCircle2 } from "lucide-react";
 function ReportSection({
   title,
   id,
+  info,
   children,
 }: {
   title: string;
   id: string;
+  info?: { title?: string; content: React.ReactNode; footer?: React.ReactNode };
   children: React.ReactNode;
 }) {
   return (
     <section id={id} className="space-y-4">
-      <h2 className="border-b border-[var(--border-hairline)] pb-2 text-[var(--text-md)] font-semibold">
-        {title}
+      <h2 className="border-b border-[var(--border-hairline)] pb-2 text-[var(--text-md)] font-semibold flex items-center">
+        <span>{title}</span>
+        {info && (
+          <InfoTooltip
+            title={info.title}
+            content={info.content}
+            footer={info.footer}
+          />
+        )}
       </h2>
       {children}
     </section>
@@ -508,18 +517,11 @@ export default function ReportPage() {
               )}
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
-              <button
-                type="button"
-                onClick={handleDirectApprove}
-                className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all text-center"
-              >
-                Approve & Run Retest
-              </button>
               <Link
                 href={`/scans/${scanId}/hardening`}
-                className="rounded-[var(--radius-input)] border border-[var(--border-hairline)] bg-[var(--bg-raised)] px-4 py-2 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                className="rounded-[var(--radius-input)] bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-[#0A0D12] hover:brightness-110 shadow-sm transition-all text-center"
               >
-                Review Proposal →
+                Inspect Diff &amp; Approve →
               </Link>
             </div>
           </div>
@@ -529,7 +531,14 @@ export default function ReportPage() {
           {/* ── Document content ────────────────────────────────────────── */}
           <div className="max-w-3xl space-y-10">
             {/* 1. Summary */}
-            <ReportSection title="1. Summary" id="summary">
+            <ReportSection
+              title="1. Summary"
+              id="summary"
+              info={{
+                title: "Audit Executive Summary",
+                content: "High-level compliance posture and before-and-after attack mitigation delta across all tested risk vectors.",
+              }}
+            >
               <div className="flex items-center gap-3">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs font-semibold ${verdictMeta.cls}`}
@@ -559,7 +568,14 @@ export default function ReportPage() {
             </ReportSection>
 
             {/* 2. Coverage */}
-            <ReportSection title="2. Coverage" id="coverage">
+            <ReportSection
+              title="2. Coverage"
+              id="coverage"
+              info={{
+                title: "Scan Coverage Profile",
+                content: "Taxonomy of evaluated risk categories and catalog test cases mapped against target capabilities.",
+              }}
+            >
               <dl>
                 <StatRow label="Attack cases" value={String(report.coverage.attack_cases)} />
                 <StatRow
@@ -575,7 +591,14 @@ export default function ReportPage() {
             </ReportSection>
 
             {/* 3. Findings */}
-            <ReportSection title="3. Findings" id="findings-report">
+            <ReportSection
+              title="3. Findings"
+              id="findings-report"
+              info={{
+                title: "Vulnerability Ledger",
+                content: "Categorized security findings with associated attack IDs, confidence scores, and failure rules.",
+              }}
+            >
               {report.findings.length === 0 ? (
                 <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">
                   No findings recorded for this scan.
@@ -621,7 +644,14 @@ export default function ReportPage() {
             </ReportSection>
 
             {/* 4. Hardening */}
-            <ReportSection title="4. Hardening" id="hardening-report">
+            <ReportSection
+              title="4. Hardening"
+              id="hardening-report"
+              info={{
+                title: "Remediation Diff",
+                content: "Unified diff of system prompt modifications and runtime tool policies generated by the Hardener agent.",
+              }}
+            >
               {report.hardening.proposal ? (
                 <>
                   <dl>
@@ -648,7 +678,14 @@ export default function ReportPage() {
             </ReportSection>
 
             {/* 5. Before & After */}
-            <ReportSection title="5. Before & after" id="before-after">
+            <ReportSection
+              title="5. Before & after"
+              id="before-after"
+              info={{
+                title: "Before vs After Delta",
+                content: "Quantifies the reduction in attack success rate (ASR) while checking for over-refusal on legitimate user queries.",
+              }}
+            >
               <dl>
                 <StatRow
                   label="Attack success rate (before → after)"
@@ -666,22 +703,14 @@ export default function ReportPage() {
               {security.after_attack_success_rate === null && (
                 <div className="mt-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-md border border-amber-900/30 bg-amber-950/15 p-3 text-xs font-mono text-amber-300/90">
                   <span>
-                    ℹ️ "After" metrics are pending. Approve the hardening proposal to execute Phase 2 retest and calculate remediation efficacy.
+                    ℹ️ "After" metrics are pending. Inspect and approve the hardening proposal to execute Phase 2 retest and calculate remediation efficacy.
                   </span>
                   <div className="flex items-center gap-3 flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleDirectApprove}
-                      disabled={retesting}
-                      className="text-[var(--accent)] font-semibold hover:underline whitespace-nowrap cursor-pointer disabled:opacity-50"
-                    >
-                      {retesting ? "Retesting target…" : "Approve & run retest →"}
-                    </button>
                     <Link
                       href={`/scans/${scanId}/hardening`}
-                      className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline whitespace-nowrap"
+                      className="text-[var(--accent)] font-semibold hover:underline whitespace-nowrap cursor-pointer"
                     >
-                      Review details
+                      Inspect Diff &amp; Approve →
                     </Link>
                   </div>
                 </div>
@@ -695,7 +724,14 @@ export default function ReportPage() {
             </ReportSection>
 
             {/* 6. Evidence */}
-            <ReportSection title="6. Evidence" id="evidence">
+            <ReportSection
+              title="6. Evidence"
+              id="evidence"
+              info={{
+                title: "Cryptographic Evidence Trail",
+                content: "Audit ledger recording sanitized model turns, tool arguments, canary disclosures, and judge decisions.",
+              }}
+            >
               <dl>
                 <StatRow label="Evidence entries" value={String(report.evidence.length)} />
                 <StatRow label="Model calls (judge)" value={String(report.model_usage.calls)} />
